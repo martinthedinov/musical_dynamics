@@ -16,8 +16,10 @@ if "%PY%"=="" (
 )
 echo - Python: & %PY% --version
 %PY% -m pip install --upgrade pip
-echo - Installing Python packages ^(numpy, mido, pillow^)...
-%PY% -m pip install --upgrade numpy mido pillow
+echo - Installing Python packages ^(codec + stego^)...
+%PY% -m pip install --upgrade numpy mido pillow soundfile cryptography reedsolo
+echo - Installing PyAV for MP3/AAC/Ogg stego ^(best-effort^)...
+%PY% -m pip install --upgrade av || echo   ^(PyAV unavailable; MP3/AAC stego disabled, lossless still works^)
 
 REM --- Node (optional, for the web app) ---
 where npm >nul 2>&1

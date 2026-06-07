@@ -15,8 +15,10 @@ if ! command -v "$PY" >/dev/null 2>&1; then
 fi
 echo "• Python: $($PY --version 2>&1)"
 "$PY" -m pip install --upgrade pip >/dev/null 2>&1 || true
-echo "• Installing Python packages (numpy, mido, pillow)…"
-"$PY" -m pip install --user --upgrade numpy mido pillow
+echo "• Installing Python packages (codec + stego)…"
+"$PY" -m pip install --user --upgrade numpy mido pillow soundfile cryptography reedsolo
+echo "• Installing PyAV for MP3/AAC/Ogg stego (best-effort)…"
+"$PY" -m pip install --user --upgrade av || echo "  (PyAV unavailable here — MP3/AAC stego will be disabled; lossless WAV/FLAC/AIFF still work)"
 
 # --- Node (for the web app, only if present) ---
 if command -v npm >/dev/null 2>&1 && [ -f web/package.json ]; then
