@@ -13,3 +13,6 @@ __pycache__/
 *.swp
 .idea/
 .vscode/
+
+# Verification / agent scratch (transient, never committed)
+/_*
