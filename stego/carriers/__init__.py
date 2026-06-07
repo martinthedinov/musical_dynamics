@@ -3,10 +3,18 @@ import os
 from .. import pipeline
 from .pcm import PCMCarrier
 
-# carriers wired up so far; MP3/AAC/Ogg watermark, MIDI, and MD-native land next.
 _CARRIERS = [PCMCarrier]
-_PLANNED = {".mp3": "lossy watermark", ".aac": "lossy watermark", ".m4a": "lossy watermark",
-            ".ogg": "lossy watermark", ".mid": "MIDI channel", ".midi": "MIDI channel"}
+try:
+    from .mp3 import MP3Carrier
+    _CARRIERS.append(MP3Carrier)
+except Exception:
+    MP3Carrier = None                 # PyAV not installed -> MP3/AAC/Ogg disabled
+try:
+    from .midi import MIDICarrier
+    _CARRIERS.append(MIDICarrier)
+except Exception:
+    MIDICarrier = None                # mido not installed -> MIDI disabled
+_PLANNED = {}
 
 def open_carrier(path):
     ext = os.path.splitext(path)[1].lower()

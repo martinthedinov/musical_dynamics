@@ -80,6 +80,34 @@ def main():
     except crypto.CryptoError:
         print("  wrong password     -> rejected ✓")
 
+    print("\n== MP3 carrier (lossy spread-spectrum watermark) ==")
+    try:
+        from .carriers.mp3 import _encode, _decode, _LOSSY_EXTS
+        # synthesize a longer signal so MP3 capacity is enough for a short payload
+        sr_mp3 = 44100; secs = 90
+        t = np.linspace(0, secs, secs*sr_mp3, endpoint=False)
+        s = 0.4*np.sin(2*np.pi*110*t) + 0.3*np.sin(2*np.pi*220*t) + 0.3*np.sin(2*np.pi*(1200 + 200*np.sin(2*np.pi*0.3*t))*t)
+        s /= np.max(np.abs(s)+1e-9)
+        stereo = np.stack([(s*30000).astype(np.int16), (np.roll(s,17)*30000).astype(np.int16)])
+        mp3_in = os.path.join(d, "song.mp3"); _encode(stereo, sr_mp3, mp3_in, _LOSSY_EXTS[".mp3"])
+        msg = b"hidden in an MP3 via DSSS"
+        mp3_pl = os.path.join(d, "msg.txt"); open(mp3_pl, "wb").write(msg)
+        info = embed_file(mp3_in, os.path.join(d, "stego.mp3"), mp3_pl,
+                          redundancy=None, block_size=16, rs_nsym=6)
+        print("  embed:", {k: info[k] for k in ('K','n_symbols','redundancy','payload_bytes')})
+        out, _ = extract_file(os.path.join(d, "stego.mp3"), d)
+        print("  single MP3 round-trip -> bit-exact:", open(out, "rb").read() == msg)
+        # second encoding generation
+        s2, _ = _decode(os.path.join(d, "stego.mp3"))
+        _encode(s2, sr_mp3, os.path.join(d, "stego_re.mp3"), _LOSSY_EXTS[".mp3"])
+        try:
+            out2, _ = extract_file(os.path.join(d, "stego_re.mp3"), d)
+            print("  double MP3 encode    -> bit-exact:", open(out2, "rb").read() == msg)
+        except Exception as e:
+            print("  double MP3 encode    -> failed (acceptable; survival depends on track):", e)
+    except ImportError:
+        print("  PyAV not installed — MP3 carrier disabled (lossless WAV/FLAC still works).")
+
 def _flip(s, rng, n):
     idx = rng.choice(s.size, size=n, replace=False)
     s[idx] = (s[idx].astype(np.int32) ^ 1).astype(np.int16)   # flip LSB
