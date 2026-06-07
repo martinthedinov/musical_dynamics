@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Musical Dynamics v6 · program in music</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0c0a13;--ink:#ece7f5;--dim:#8a82a8;--line:#241f33;--maj:#e8c468;--min:#7aa2f7;--op:#9ece6a;
+    --ctrl:#f7768e;--acc:#bb9af7;--lead:#ff9e64;--py:#7ee787;--ok:#3fb950;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:"Fraunces",serif;min-height:100vh;padding:40px 20px;
+    background-image:radial-gradient(circle at 16% -5%,#1a1530 0,transparent 55%),radial-gradient(circle at 96% 105%,#15112a 0,transparent 50%);}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:clamp(32px,6vw,60px);font-weight:600;letter-spacing:-.03em;line-height:.92}
+  h1 em{font-style:italic;color:var(--acc)}
+  .tag{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.2em;color:var(--lead);text-transform:uppercase;margin-top:10px}
+  .sub{color:var(--dim);font-size:16px;margin:12px 0 14px;max-width:66ch;line-height:1.55}
+  .sub b{color:var(--ink);font-weight:400;font-style:italic}
+  .det{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--py);border-left:2px solid var(--py);padding-left:10px;margin:0 0 26px;line-height:1.6;max-width:78ch}
+  .panel{border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px;background:rgba(255,255,255,.014);backdrop-filter:blur(4px)}
+  .label{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);margin-bottom:11px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .label .hint{letter-spacing:.03em;text-transform:none;color:var(--py);font-size:11px;font-weight:400}
+  textarea{width:100%;min-height:188px;background:#07120a;color:var(--py);border:1px solid var(--line);border-radius:8px;padding:14px;font-family:"JetBrains Mono",monospace;font-size:13px;line-height:1.6;resize:vertical;tab-size:4}
+  pre.rec{background:#0a0f14;color:var(--min);border:1px solid var(--line);border-radius:8px;padding:13px;font-family:"JetBrains Mono",monospace;font-size:12.5px;line-height:1.55;max-height:230px;overflow:auto;white-space:pre;margin:0}
+  .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-top:13px}
+  button{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;letter-spacing:.03em;border:1px solid var(--line);background:#16121f;color:var(--ink);padding:11px 18px;border-radius:8px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--acc);color:var(--acc);transform:translateY(-1px)}
+  button.primary{background:var(--acc);color:#0c0a13;border-color:var(--acc)}button.primary:hover{background:#cdb4ff}
+  select,input[type=number]{font-family:"JetBrains Mono",monospace;background:#16121f;color:var(--ink);border:1px solid var(--line);padding:9px 8px;border-radius:8px;font-size:12px}
+  input[type=range]{accent-color:var(--acc);width:130px}
+  .params{display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:13px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  .field .val{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--lead)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .out{font-family:"JetBrains Mono",monospace;font-size:15px;color:var(--maj);word-break:break-word;line-height:1.9}
+  .out.err{color:var(--ctrl);font-size:13px}
+  .stats{font-family:"JetBrains Mono",monospace;font-size:12px;color:var(--dim);line-height:1.85}.stats b{color:var(--lead);font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;max-height:140px;overflow:auto}
+  .chip{font-family:"JetBrains Mono",monospace;font-size:10.5px;padding:3px 7px;border-radius:5px;border:1px solid var(--line);white-space:nowrap}
+  .chip b{font-weight:600}.chip .arg{color:var(--lead)}
+  #roll{width:100%;height:300px;display:block;border:1px solid var(--line);border-radius:8px;background:#080610}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:11px;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--dim)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}.dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .badge{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px}
+  .badge.good{background:rgba(63,185,80,.15);color:var(--ok);border:1px solid rgba(63,185,80,.4)}
+  .badge.bad{background:rgba(247,118,142,.15);color:var(--ctrl);border:1px solid rgba(247,118,142,.4)}
+  .note{color:var(--dim);font-size:13px;line-height:1.55;margin-top:9px}.note em{color:var(--acc);font-style:italic}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Musical <em>Dynamics</em></h1>
+  <div class="tag">v6 · a programming language you can hear</div>
+  <p class="sub">Write <b>Python</b> and it plays as chords; the <b>decoder</b> reconstructs the program from those notes. Or <b>compose by ear</b> below and watch the program emerge — optionally constrained so only valid programs can be built. And as a side feature, <b>hide a message or image</b> inside the audio, imperceptibly.</p>
+  <div class="det" id="det">Determinism: a program + your compositional choices fully determine the music; the music fully determines the output. There is no randomness in the system — “variation” is a choice you make, not chance. Each opcode owns a <b>family</b> of distinct chords (the redundancy), so the same instruction can sound many ways, yet every chord maps back to exactly one opcode.</div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="label">① python source <span class="hint">ints · = += · + - * // % · &lt; &gt; == != · if/elif/else · while · for…range · print</span></div>
+      <textarea id="src" spellcheck="false"></textarea>
+      <div class="row">
+        <button class="primary" id="play">▶ run &amp; play</button>
+        <button id="stop">■ stop</button>
+        <select id="demo">
+          <option value="fibonacci">Fibonacci</option><option value="counter">Counter</option>
+          <option value="fizzbuzz">FizzBuzz</option><option value="nested">Nested loops</option>
+          <option value="primes">Primes &lt; 30</option>
+          <option value="hello">Hello World (strings)</option>
+          <option value="fizzwords">FizzBuzz (words)</option>
+        </select>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="label">output <span class="hint" id="outhint"></span></div>
+      <div class="out" id="out">—</div>
+      <div class="label" style="margin-top:16px">stats</div>
+      <div class="stats" id="stats"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="label">② encode · realization choices (1 → n) <span class="hint">these only change the sound — never the output, never the decode</span></div>
+    <div class="params">
+      <div class="field"><label>encoding</label>
+        <select id="emode"><option value="score">score (reversible to source)</option><option value="perf">performance (hear it run)</option></select></div>
+      <div class="field"><label>scale / mode</label>
+        <select id="mode"><option>major</option><option>minor</option><option>dorian</option><option>phrygian</option>
+          <option>lydian</option><option>mixolydian</option><option>pent_major</option><option selected value="pent_minor">pent_minor</option><option>whole_tone</option></select></div>
+      <div class="field"><label>key</label>
+        <select id="key"><option value="0">C</option><option value="2">D</option><option value="3">Eb</option><option value="5">F</option><option value="7">G</option><option value="9">A</option></select></div>
+      <div class="field"><label>octave</label>
+        <select id="octave"><option value="-1">−1</option><option value="0" selected>0</option><option value="1">+1</option></select></div>
+      <div class="field"><label>loop climb <span class="val" id="climbV">+1°</span></label>
+        <input type="range" id="climb" min="0" max="3" step="1" value="1"></div>
+      <div class="field"><label>tempo <span class="val" id="tempoV">120 bpm</span></label>
+        <input type="range" id="tempo" min="60" max="200" step="2" value="120"></div>
+      <div class="field"><label>feel</label>
+        <select id="feel"><option value="straight">straight</option><option value="swing">swing</option><option value="staccato">staccato</option><option value="legato">legato</option></select></div>
+      <div class="field"><label>melody map (print)</label>
+        <select id="melody"><option value="ladder">ladder</option><option value="compact">compact</option><option value="chromatic">chromatic</option><option value="pulse">pulse</option></select></div>
+      <div class="field"><label>timbre</label>
+        <select id="timbre"><option value="triangle">triangle</option><option value="sine">sine</option><option value="sawtooth">saw</option><option value="square">square</option></select></div>
+      <div class="field"><label>variation (deterministic)</label>
+        <div style="display:flex;gap:6px"><input type="number" id="variation" value="0" min="0" style="width:64px"><button id="reroll" style="padding:9px 12px">next</button></div></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="label">compiled · opcode → chord <span class="hint" id="opcount"></span></div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="panel">
+      <div class="label">③ decode · music → code <span class="badge" id="badge"></span></div>
+      <div class="stats" id="decstats" style="margin-bottom:10px"></div>
+      <pre class="rec" id="recpy">—</pre>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="label">piano roll · operands ride a fixed “data staff” the climb never touches</div>
+    <canvas id="roll"></canvas>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--maj)"></i>data</span><span><i class="dot" style="background:var(--min)"></i>memory</span>
+      <span><i class="dot" style="background:var(--op)"></i>arithmetic</span><span><i class="dot" style="background:var(--ctrl)"></i>control</span>
+      <span><i class="dot" style="background:var(--acc)"></i>operand (lossless)</span><span><i class="dot" style="background:var(--lead)"></i>print melody</span>
+    </div>
+    <div class="note" id="why"></div>
+  </div>
+
+  <div class="panel">
+    <div class="label">④ compose · program by ear
+      <span style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--dim);text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="constrain" checked style="accent-color:var(--acc)"> only allow valid program steps
+      </span></div>
+    <div class="note" style="margin:0 0 10px">Click chords to lay down a program. Greyed bricks would break validity (when the toggle is on). Operand for PUSH/LOAD/STORE: <input type="number" id="operand" value="0" min="0" style="width:60px"></div>
+    <div id="palette" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+    <div class="row" style="margin-top:0">
+      <button id="playseq" class="primary">▶ play sequence</button>
+      <button id="undo">⌫ remove last</button>
+      <button id="clearseq">clear</button>
+      <span class="badge" id="cbadge" style="margin-left:auto"></span>
+    </div>
+    <div class="label" style="margin-top:14px">sequence → structure</div>
+    <div class="chips" id="cchips" style="margin-bottom:10px"></div>
+    <div class="stats" id="cout" style="margin-bottom:10px"></div>
+    <pre class="rec" id="cpy">— lay down some chords —</pre>
+  </div>
+
+  <div class="panel">
+    <div class="label">⑤ stego · hide data in the audio <span class="hint">side feature · imperceptible LSB + CRC + redundancy</span></div>
+    <div class="note" style="margin:0 0 10px">Renders the current piece to a WAV with a hidden message in bits below hearing, then lets you decode it back. Output is bit-identical to the ear (≈ −96 dBFS change).</div>
+    <div class="row" style="margin-top:0">
+      <input type="text" id="stegomsg" value="hidden inside the music 🎵" style="flex:1;min-width:200px;font-family:'JetBrains Mono',monospace;background:#16121f;color:var(--ink);border:1px solid var(--line);padding:10px;border-radius:8px;font-size:12px">
+      <button id="stegoembed" class="primary">hide → download .wav</button>
+    </div>
+    <div class="row">
+      <input type="file" id="stegofile" accept=".wav" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim)">
+      <button id="stegodecode">decode uploaded .wav</button>
+    </div>
+    <div class="stats" id="stegoout" style="margin-top:10px"></div>
+  </div>
+</div>
+
+<script>
+// ============ scales ============
+const MODES={major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],dorian:[0,2,3,5,7,9,10],phrygian:[0,1,3,5,7,8,10],
+ lydian:[0,2,4,6,7,9,11],mixolydian:[0,2,4,5,7,9,10],pent_major:[0,2,4,7,9],pent_minor:[0,3,5,7,10],whole_tone:[0,2,4,6,8,10]};
+const scaleShift=(deg,sc)=>{const n=sc.length;deg=((deg%(2*n))+2*n)%(2*n);return sc[deg%n]+12*Math.floor(deg/n);};
+// ============ opcode -> FAMILY of chords (redundancy); reverse map for decode ============
+const QFAMILY={PUSH:[[0,4,7],[0,4,7,9]],LOAD:[[0,3,7],[0,3,7,10]],STORE:[[0,5,7],[0,5,7,10]],
+ ADD:[[0,2,7]],SUB:[[0,4,7,11]],MUL:[[0,4,8]],DIV:[[0,3,8]],MOD:[[0,4,6]],
+ EQ:[[0,4,7,10]],NE:[[0,6]],LT:[[0,3,7,9]],GT:[[0,3,7,11]],LE:[[0,4,8,10]],GE:[[0,3,6,10]],
+ IF:[[0,3,6],[0,2,3,7]],ELSE:[[0,1,2]],WHILE:[[0,3,6,9]],END:[[0,7],[0,1,7]],OUT:[[0,2,4,7]],DUP:[[0,5]],MKSTR:[[0,2,5],[0,2,5,9]]};
+const HAS_ARG=new Set(["PUSH","LOAD","STORE","MKSTR"]);const OPERAND_BASE=84,OPERAND_RADIX=12;
+function encOperand(v){v=v|0;if(v<0)throw"operand must be ≥0";const d=[];if(v===0)d.push(0);else while(v>0){d.push(v%OPERAND_RADIX);v=Math.floor(v/OPERAND_RADIX);}if(d.length>3)throw"operand too large (<1728)";return d.map((dig,i)=>OPERAND_BASE+i*12+dig);}
+function decOperand(ps){let v=0;for(const p of ps){const k=p-OPERAND_BASE;v+=(k%12)*Math.pow(OPERAND_RADIX,Math.floor(k/12));}return v;}
+const QREV={};for(const[op,fam]of Object.entries(QFAMILY))for(const q of fam){
+  const sig=[...new Set(q.map(x=>((x%12)+12)%12))].sort((a,b)=>a-b).join(',');
+  if(QREV[sig]!==undefined)console.error("AMBIGUOUS",sig,QREV[sig],op);QREV[sig]=op;}
+const CHORDNAME={"0,4,7":"maj","0,4,7,9":"6","0,3,7":"min","0,3,7,10":"m7","0,5,7":"sus4","0,5,7,10":"7s4",
+ "0,2,7":"sus2","0,4,7,11":"maj7","0,4,8":"aug","0,3,8":"m#5","0,4,6":"♭5","0,4,7,10":"7","0,6":"tritone",
+ "0,3,7,9":"m6","0,3,7,11":"mM7","0,4,8,10":"aug7","0,3,6,10":"m7♭5","0,3,6":"dim","0,2,3,7":"madd9",
+ "0,1,2":"clus3","0,3,6,9":"dim7","0,7":"5th","0,1,7":"7♭9","0,2,4,7":"add9","0,5":"4th","0,2,5":"q4","0,2,5,9":"q4add"};
+const COL={PUSH:'--maj',LOAD:'--min',STORE:'--min',DUP:'--min',ADD:'--op',SUB:'--op',MUL:'--op',DIV:'--op',MOD:'--op',
+ EQ:'--op',NE:'--op',LT:'--op',GT:'--op',LE:'--op',GE:'--op',IF:'--ctrl',ELSE:'--ctrl',WHILE:'--ctrl',END:'--ctrl',OUT:'--ctrl',MKSTR:'--maj'};
+const CAT={LOAD:[.30,52,0],STORE:[.30,54,0],DUP:[.30,52,0],PUSH:[.40,64,0],ADD:[.40,70,0],SUB:[.40,70,0],MUL:[.40,70,0],
+ DIV:[.40,70,0],MOD:[.40,70,0],EQ:[.40,68,0],NE:[.40,68,0],LT:[.40,68,0],GT:[.40,68,0],LE:[.40,68,0],GE:[.40,68,0],
+ IF:[.55,86,1],ELSE:[.55,84,1],WHILE:[.60,90,1],END:[.55,80,1],OUT:[.50,58,1],MKSTR:[.45,72,0]};
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+// ============ Python-subset compiler (validated) ============
+const KW=new Set(["while","if","elif","else","for","in","range","print"]);
+const OPS=["//=","//","==","!=","<=",">=","+=","-=","*=","%=","=","<",">","+","-","*","%","(",")",",",":"];
+function lex(s){const o=[];let i=0;while(i<s.length){const c=s[i];if(c===' '||c==='\t'){i++;continue;}
+  if(c==='"'||c==="'"){const q=c;let j=i+1,str='';while(j<s.length&&s[j]!==q){if(s[j]==='\\'){const n=s[j+1];str+=(n==='n'?'\n':n==='t'?'\t':n==='\\'?'\\':n==='r'?'\r':n);j+=2;}else{str+=s[j];j++;}}if(j>=s.length)throw"unterminated string";o.push({t:'str',v:str});i=j+1;continue;}
+  if(/\d/.test(c)){let j=i;while(j<s.length&&/\d/.test(s[j]))j++;o.push({t:'num',v:parseInt(s.slice(i,j),10)});i=j;continue;}
+  if(/[A-Za-z_]/.test(c)){let j=i;while(j<s.length&&/[A-Za-z0-9_]/.test(s[j]))j++;const w=s.slice(i,j);o.push({t:KW.has(w)?'kw':'name',v:w});i=j;continue;}
+  let m=null;for(const op of OPS)if(s.startsWith(op,i)){m=op;break;}if(!m)throw"lex error near: "+s.slice(i);o.push({t:'op',v:m});i+=m.length;}return o;}
+function preprocess(src){const L=[];for(let raw of src.replace(/\r/g,'').split('\n')){raw=raw.split('#')[0];if(!raw.trim())continue;
+  let ind=0;for(const ch of raw){if(ch===' ')ind++;else if(ch==='\t')ind+=4;else break;}L.push({indent:ind,text:raw.trim()});}return L;}
+function parseExpr(toks){let p=0;const peek=()=>toks[p],next=()=>toks[p++];
+  function atom(){const t=next();if(!t)throw"unexpected end of expression";if(t.t==='num')return{k:'num',v:t.v};if(t.t==='str')return{k:'str',v:t.v};if(t.t==='name')return{k:'name',v:t.v};
+    if(t.t==='op'&&t.v==='('){const e=expr(0);const c=next();if(!c||c.v!==')')throw"expected )";return e;}if(t.t==='op'&&t.v==='-')return{k:'neg',e:atom()};throw"unexpected token";}
+  const PREC={'<':1,'>':1,'<=':1,'>=':1,'==':1,'!=':1,'+':2,'-':2,'*':3,'%':3,'//':3};
+  function expr(min){let left=atom();while(peek()&&peek().t==='op'&&PREC[peek().v]!==undefined&&PREC[peek().v]>=min){const op=next().v;left={k:'bin',op,left,right:expr(PREC[op]+1)};}return left;}
+  const e=expr(0);if(p!==toks.length)throw"trailing tokens in expression";return e;}
+function compilePython(src){const lines=preprocess(src);let pos=0;
+  function suite(ind){const o=[];while(pos<lines.length&&lines[pos].indent===ind)o.push(statement(ind));return o;}
+  function statement(ind){const t=lex(lines[pos].text),h=t[0];if(h.t==='kw'&&['while','if','elif','else','for'].includes(h.v))return compound(ind,t);pos++;return simple(t);}
+  function condTokens(t){if(t[t.length-1].v!==':')throw"expected ':'";return t.slice(1,t.length-1);}
+  function ci(){if(pos>=lines.length)throw"expected an indented block";return lines[pos].indent;}
+  function compound(ind,t){const kw=t[0].v;
+    if(kw==='while'){const test=parseExpr(condTokens(t));pos++;return{type:'while',test,body:suite(ci())};}
+    if(kw==='for'){if(t[1].t!=='name'||t[2].v!=='in'||t[3].v!=='range'||t[4].v!=='(')throw"bad for-loop";
+      let close=t.length-2;if(t[close].v!==')'||t[t.length-1].v!==':')throw"bad for-loop tail";const inner=t.slice(5,close),args=[];let depth=0,start=0;
+      for(let i=0;i<inner.length;i++){const v=inner[i].v;if(v==='(')depth++;else if(v===')')depth--;else if(v===','&&depth===0){args.push(inner.slice(start,i));start=i+1;}}
+      if(inner.length)args.push(inner.slice(start));const ex=args.map(parseExpr);pos++;const body=suite(ci());
+      return{type:'for',var:t[1].v,start:ex.length===1?{k:'num',v:0}:ex[0],stop:ex.length===1?ex[0]:ex[1],body};}
+    if(kw==='if'||kw==='elif'){const test=parseExpr(condTokens(t));pos++;const body=suite(ci());let orelse=[];
+      if(pos<lines.length&&lines[pos].indent===ind){const t2=lex(lines[pos].text);if(t2[0].v==='elif')orelse=[compound(ind,t2)];else if(t2[0].v==='else'){pos++;orelse=suite(ci());}}
+      return{type:'if',test,body,orelse};}throw"unexpected "+kw;}
+  function simple(t){if(t[0].v==='print'){if(t[1].v!=='(')throw"print needs (";return{type:'print',expr:parseExpr(t.slice(2,t.length-1))};}
+    if(t[0].t!=='name')throw"can't parse statement";const name=t[0].v,op=t[1].v;
+    if(op==='=')return{type:'assign',name,expr:parseExpr(t.slice(2))};if(['+=','-=','*=','%=','//='].includes(op))return{type:'aug',name,op:op.slice(0,-1),expr:parseExpr(t.slice(2))};
+    throw"can't parse: "+t.map(x=>x.v).join(' ');}
+  const prog=suite(lines.length?lines[0].indent:0);
+  const regs={},code=[];const reg=n=>{if(!(n in regs))regs[n]=Object.keys(regs).length;return regs[n];};let tmp=0;const newtmp=()=>reg("__t"+(++tmp));
+  const BIN={'+':'ADD','-':'SUB','*':'MUL','%':'MOD','//':'DIV'},CMP={'<':'LT','>':'GT','<=':'LE','>=':'GE','==':'EQ','!=':'NE'};
+  function E(e){if(e.k==='num')code.push(['PUSH',e.v]);else if(e.k==='name')code.push(['LOAD',reg(e.v)]);
+    else if(e.k==='str'){for(const ch of e.v)code.push(['PUSH',ch.codePointAt(0)]);code.push(['MKSTR',[...e.v].length]);}
+    else if(e.k==='neg'){code.push(['PUSH',0]);E(e.e);code.push(['SUB',null]);}
+    else if(e.k==='bin'){E(e.left);E(e.right);code.push([BIN[e.op]||CMP[e.op],null]);}else throw"expr?";}
+  function B(s){for(const x of s)ST(x);}
+  function ST(s){if(s.type==='assign'){E(s.expr);code.push(['STORE',reg(s.name)]);}
+    else if(s.type==='aug'){const r=reg(s.name);code.push(['LOAD',r]);E(s.expr);code.push([BIN[s.op],null]);code.push(['STORE',r]);}
+    else if(s.type==='print'){E(s.expr);code.push(['OUT',null]);}
+    else if(s.type==='while'){E(s.test);code.push(['WHILE',null]);B(s.body);E(s.test);code.push(['END',null]);}
+    else if(s.type==='if'){E(s.test);code.push(['IF',null]);B(s.body);if(s.orelse.length){code.push(['ELSE',null]);B(s.orelse);}code.push(['END',null]);}
+    else if(s.type==='for'){const v=reg(s.var);E(s.start);code.push(['STORE',v]);const et=newtmp();E(s.stop);code.push(['STORE',et]);
+      code.push(['LOAD',v],['LOAD',et],['LT',null],['WHILE',null]);B(s.body);code.push(['LOAD',v],['PUSH',1],['ADD',null],['STORE',v]);code.push(['LOAD',v],['LOAD',et],['LT',null],['END',null]);}else throw"stmt?";}
+  B(prog);return{code,regs};}
+// ============ VM (looping) + run_trace (straight-line) ============
+function run(toks,maxSteps=2000000){const pair={},opener={},st=[];
+  toks.forEach(([op],i)=>{if(op==='IF'||op==='WHILE')st.push(i);else if(op==='ELSE')pair[st[st.length-1]]=i;else if(op==='END'){const s=st.pop();if(!(s in pair))pair[s]=i;opener[i]=s;}});
+  const ste=ip=>{let d=1;while(d){ip++;const o=toks[ip][0];d+=(o==='IF'||o==='WHILE')-(o==='END');}return ip;};
+  let stack=[],regs={},out=[],trace=[],loops=[],ip=0,steps=0,mx=0;const isum=()=>loops.reduce((s,c)=>s+c.iter,0);
+  const emit=(op,arg,val=null)=>trace.push({op,arg,iter:isum(),val});
+  while(ip<toks.length){if(++steps>maxSteps)throw"step limit (infinite loop?)";const[op,arg]=toks[ip];
+    switch(op){case'PUSH':stack.push(arg);break;case'LOAD':stack.push(regs[arg]||0);break;case'STORE':regs[arg]=stack.pop();break;
+      case'MKSTR':{let s='';for(let k=0;k<arg;k++)s=String.fromCodePoint(stack.pop())+s;stack.push(s);}break;
+      case'ADD':{const b=stack.pop(),a=stack.pop();stack.push(a+b);}break;case'SUB':{const b=stack.pop(),a=stack.pop();stack.push(a-b);}break;
+      case'MUL':{const b=stack.pop(),a=stack.pop();stack.push(a*b);}break;case'DIV':{const b=stack.pop(),a=stack.pop();stack.push(b?Math.floor(a/b):0);}break;
+      case'MOD':{const b=stack.pop(),a=stack.pop();stack.push(b?((a%b)+b)%b:0);}break;case'EQ':{const b=stack.pop(),a=stack.pop();stack.push(a===b?1:0);}break;
+      case'NE':{const b=stack.pop(),a=stack.pop();stack.push(a!==b?1:0);}break;case'LT':{const b=stack.pop(),a=stack.pop();stack.push(a<b?1:0);}break;
+      case'GT':{const b=stack.pop(),a=stack.pop();stack.push(a>b?1:0);}break;case'LE':{const b=stack.pop(),a=stack.pop();stack.push(a<=b?1:0);}break;
+      case'GE':{const b=stack.pop(),a=stack.pop();stack.push(a>=b?1:0);}break;case'OUT':{const v=stack.pop();out.push(v);emit(op,arg,v);ip++;continue;}
+      case'IF':{if(stack.pop()===0){emit(op,arg);ip=pair[ip];if(toks[ip][0]==='ELSE')ip++;continue;}}break;
+      case'ELSE':emit(op,arg);ip=ste(ip);continue;
+      case'WHILE':{const top=loops[loops.length-1],re=top&&top.opener===ip;if(stack.pop()===0){if(re)loops.pop();emit(op,arg);ip=ste(ip)+1;continue;}if(re){top.iter++;mx=Math.max(mx,top.iter);}else loops.push({opener:ip,iter:0});}break;
+      case'END':{if(toks[opener[ip]][0]==='WHILE'){emit(op,arg);ip=opener[ip];continue;}}break;}
+    emit(op,arg);ip++;}
+  return{out,trace,maxIter:mx+1};}
+function runTrace(toks){let stack=[],regs={},out=[];for(const[op,arg]of toks){
+  switch(op){case'PUSH':stack.push(arg);break;case'LOAD':stack.push(regs[arg]||0);break;case'STORE':regs[arg]=stack.pop();break;
+    case'MKSTR':{let s='';for(let k=0;k<arg;k++)s=String.fromCodePoint(stack.pop())+s;stack.push(s);}break;
+    case'ADD':{const b=stack.pop(),a=stack.pop();stack.push(a+b);}break;case'SUB':{const b=stack.pop(),a=stack.pop();stack.push(a-b);}break;
+    case'MUL':{const b=stack.pop(),a=stack.pop();stack.push(a*b);}break;case'DIV':{const b=stack.pop(),a=stack.pop();stack.push(b?Math.floor(a/b):0);}break;
+    case'MOD':{const b=stack.pop(),a=stack.pop();stack.push(b?((a%b)+b)%b:0);}break;case'EQ':{const b=stack.pop(),a=stack.pop();stack.push(a===b?1:0);}break;
+    case'NE':{const b=stack.pop(),a=stack.pop();stack.push(a!==b?1:0);}break;case'LT':{const b=stack.pop(),a=stack.pop();stack.push(a<b?1:0);}break;
+    case'GT':{const b=stack.pop(),a=stack.pop();stack.push(a>b?1:0);}break;case'LE':{const b=stack.pop(),a=stack.pop();stack.push(a<=b?1:0);}break;
+    case'GE':{const b=stack.pop(),a=stack.pop();stack.push(a>=b?1:0);}break;case'DUP':stack.push(stack[stack.length-1]);break;
+    case'OUT':out.push(stack.pop());break;case'IF':case'WHILE':stack.pop();break;case'ELSE':case'END':break;}}
+  return out;}
+// ============ decodable realizer (root=bass; deterministic variation; lossless operands) ============
+function realize(trace,P){const sc=MODES[P.mode],root0=60+P.key+12*P.octave,n=sc.length;const notes=[];let t=0;
+  for(let k=0;k<trace.length;k++){const s=trace[k],op=s.op;let[dur,vel,ctrl]=CAT[op]||[.4,64,0];dur*=P.tempo;
+    let step=dur,gate=dur*0.95;if(P.feel==='staccato')gate=dur*0.5;else if(P.feel==='legato')gate=dur*1.25;else if(P.feel==='swing'){step=dur*(k%2===0?1.34:0.66);gate=step*0.9;}
+    const fam=QFAMILY[op],q=fam[P.variation%fam.length];const tp=scaleShift(s.iter*P.climb,sc),root=root0+tp;
+    const voiced=[root+q[0]];for(let j=1;j<q.length;j++){const up=((P.variation>>j)&1)?12:0;voiced.push(root+q[j]+up);}
+    for(const p of voiced)notes.push({p,t,d:gate,vel,role:'pad',col:COL[op],tp});
+    if(ctrl)notes.push({p:root-24,t,d:step,vel:Math.max(1,vel-12),role:'bass',col:'--ctrl',tp});
+    if(HAS_ARG.has(op)){for(const p of encOperand(s.arg|0))notes.push({p,t,d:gate*0.9,vel:96,role:'operand',col:'--acc',tp:0});}
+    else if(op==='OUT'&&s.val!=null){const sv=s.val;const v=(typeof sv==='number')?Math.abs(sv|0):(sv.length?sv.codePointAt(0):0);let mp;
+      if(P.melody==='pulse')mp=root0+19;else if(P.melody==='chromatic')mp=root0+12+(v%24);else if(P.melody==='compact')mp=root0+12+sc[v%n];else mp=root0+12+sc[v%n]+12*(Math.floor(v/n)%3);
+      notes.push({p:mp,t,d:gate*1.1,vel:110,role:'lead',col:'--lead',tp});}
+    t+=step;}
+  return{notes,total:t};}
+// ============ DECODER: notes -> opcodes ============
+function decodeNotes(notes){const onsets=new Map();
+  for(const nt of notes){if(nt.role==='bass')continue;const key=Math.round(nt.t/0.0001);
+    if(!onsets.has(key))onsets.set(key,{t:nt.t,ch0:[],ch1:[]});(nt.role==='pad'?onsets.get(key).ch0:onsets.get(key).ch1).push(nt.p);}
+  const keys=[...onsets.keys()].sort((a,b)=>onsets.get(a).t-onsets.get(b).t);const code=[];
+  for(const key of keys){const ev=onsets.get(key);const root=Math.min(...ev.ch0);
+    const sig=[...new Set(ev.ch0.map(p=>((p-root)%12+12)%12))].sort((a,b)=>a-b).join(',');const op=QREV[sig];
+    if(op===undefined)throw"undecodable chord ["+sig+"]";let arg=null;if(HAS_ARG.has(op)){if(!ev.ch1.length)throw"missing operand for "+op;arg=decOperand(ev.ch1);}
+    code.push([op,arg]);}return code;}
+// ============ DECOMPILER: opcodes -> Python ============
+function strip(e){if(e.startsWith('(')&&e.endsWith(')')){let d=0;for(let i=0;i<e.length;i++){d+=(e[i]==='(')-(e[i]===')');if(d===0&&i<e.length-1)return e;}return e.slice(1,-1);}return e;}
+function decompile(toks){const pair={},opener={},st=[];
+  toks.forEach(([op],i)=>{if(op==='IF'||op==='WHILE')st.push(i);else if(op==='ELSE')pair[st[st.length-1]]=i;else if(op==='END'){const s=st.pop();if(!(s in pair))pair[s]=i;opener[i]=s;}});
+  const BIN={ADD:'+',SUB:'-',MUL:'*',MOD:'%',DIV:'//'},CMP={LT:'<',GT:'>',LE:'<=',GE:'>=',EQ:'==',NE:'!='};
+  const lines=[],S=[];let indent=0;const put=t=>lines.push('    '.repeat(indent)+t);
+  for(let ip=0;ip<toks.length;ip++){const[op,arg]=toks[ip];
+    if(op==='PUSH')S.push(String(arg));else if(op==='LOAD')S.push('v'+arg);
+    else if(op==='MKSTR'){const parts=[];for(let k=0;k<arg;k++)parts.unshift(S.pop());let ok=true,str='';for(const x of parts){const n=parseInt(x,10);if(String(n)!==x){ok=false;break;}str+=String.fromCodePoint(n);}S.push(ok?JSON.stringify(str):('str('+parts.join('+')+')'));}
+    else if(op==='STORE')put('v'+arg+' = '+strip(S.pop()));
+    else if(BIN[op]){const b=S.pop(),a=S.pop();S.push('('+a+' '+BIN[op]+' '+b+')');}else if(CMP[op]){const b=S.pop(),a=S.pop();S.push('('+a+' '+CMP[op]+' '+b+')');}
+    else if(op==='DUP')S.push(S[S.length-1]);else if(op==='OUT')put('print('+strip(S.pop())+')');
+    else if(op==='IF'){put('if '+strip(S.pop())+':');indent++;}else if(op==='ELSE'){indent--;put('else:');indent++;}
+    else if(op==='WHILE'){put('while '+strip(S.pop())+':');indent++;}
+    else if(op==='END'){indent--;if(toks[opener[ip]][0]==='WHILE'&&S.length)S.pop();}}
+  return lines.join('\n');}
+// ============ visual-programming validity engine ============
+const POPS={PUSH:0,LOAD:0,STORE:1,ADD:2,SUB:2,MUL:2,DIV:2,MOD:2,EQ:2,NE:2,LT:2,GT:2,LE:2,GE:2,OUT:1,DUP:1,IF:1,WHILE:1,ELSE:0,END:0};
+const PUSHN={PUSH:1,LOAD:1,STORE:0,ADD:1,SUB:1,MUL:1,DIV:1,MOD:1,EQ:1,NE:1,LT:1,GT:1,LE:1,GE:1,OUT:0,DUP:2,IF:0,WHILE:0,ELSE:0,END:0};
+const ALLOPS=["PUSH","LOAD","STORE","ADD","SUB","MUL","DIV","MOD","EQ","NE","LT","GT","LE","GE","DUP","IF","ELSE","WHILE","END","OUT"];
+function simulate(tokens){let depth=0;const ctrl=[];
+  for(const [op,arg] of tokens){
+    if(op==='ELSE'){if(!ctrl.length||ctrl[ctrl.length-1].type!=='if'||ctrl[ctrl.length-1].es)return{bad:'ELSE not after an open IF'};ctrl[ctrl.length-1].es=true;}
+    else if(op==='END'){if(!ctrl.length)return{bad:'END with no open block'};ctrl.pop();}
+    const pops=op==='MKSTR'?(arg|0):POPS[op],pushes=op==='MKSTR'?1:PUSHN[op];
+    if(depth<pops)return{bad:'stack underflow at '+op};
+    depth+=pushes-pops;
+    if(op==='IF'||op==='WHILE')ctrl.push({type:op==='IF'?'if':'while',es:false});}
+  return{depth,open:ctrl.length,ctrl,bad:null};}
+function legalNext(tokens){const s=simulate(tokens);if(s.bad)return new Set();const out=new Set();
+  for(const op of ALLOPS){if(s.depth<POPS[op])continue;
+    if(op==='ELSE'&&(!s.ctrl.length||s.ctrl[s.ctrl.length-1].type!=='if'||s.ctrl[s.ctrl.length-1].es))continue;
+    if(op==='END'&&!s.ctrl.length)continue;out.add(op);}return out;}
+function runSafe(tokens){if(!tokens.length)return{ok:false,err:'empty'};
+  const s=simulate(tokens);if(s.bad)return{ok:false,err:s.bad};if(s.open)return{ok:false,err:s.open+' unclosed block(s)'};
+  try{return{ok:true,out:run(tokens).out};}catch(e){return{ok:false,err:''+e};}}
+// ============ audio ============
+let ac=null,master=null,delay=null,playing=false,TIMBRE='triangle';
+function initAudio(){ac=new(window.AudioContext||window.webkitAudioContext)();master=ac.createGain();master.gain.value=0.82;
+  const lp=ac.createBiquadFilter();lp.type="lowpass";lp.frequency.value=6500;master.connect(lp);lp.connect(ac.destination);
+  delay=ac.createDelay();delay.delayTime.value=0.28;const fb=ac.createGain();fb.gain.value=0.30;const wet=ac.createGain();wet.gain.value=0.26;delay.connect(fb);fb.connect(delay);delay.connect(wet);wet.connect(lp);}
+const mtf=m=>440*Math.pow(2,(m-69)/12);
+function voice(n,t0){const a=ac.currentTime+t0+n.t,freq=mtf(n.p),g=ac.createGain();
+  if(n.role==='bass'){const o=ac.createOscillator();o.type="sine";o.frequency.value=freq;o.connect(g);g.connect(master);const pk=n.vel/127*0.16;
+    g.gain.setValueAtTime(0,a);g.gain.linearRampToValueAtTime(pk,a+0.02);g.gain.exponentialRampToValueAtTime(0.0001,a+n.d+0.1);o.start(a);o.stop(a+n.d+0.15);return;}
+  const lead=(n.role==='lead'||n.role==='operand');const o=ac.createOscillator();o.type=TIMBRE;o.frequency.value=freq;o.connect(g);g.connect(master);if(lead)g.connect(delay);
+  const pk=n.vel/127*(lead?0.15:0.07);g.gain.setValueAtTime(0,a);g.gain.linearRampToValueAtTime(pk,a+(lead?0.006:0.05));
+  if(!lead)g.gain.setValueAtTime(pk,a+n.d*0.6);g.gain.exponentialRampToValueAtTime(0.0001,a+n.d+(lead?0.1:0.15));o.start(a);o.stop(a+n.d+0.2);}
+// ============ stego (side feature): hide bytes in audio LSBs ============
+const CRCT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRCT[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function sbits(u8){const b=new Uint8Array(u8.length*8);for(let i=0;i<u8.length;i++)for(let k=0;k<8;k++)b[i*8+k]=(u8[i]>>(7-k))&1;return b;}
+function sunbits(b){const u=new Uint8Array(b.length>>3);for(let i=0;i<u.length;i++){let v=0;for(let k=0;k<8;k++)v=(v<<1)|b[i*8+k];u[i]=v;}return u;}
+function smb(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function sperm(n,seed){const r=smb(seed),a=new Int32Array(n);for(let i=0;i<n;i++)a[i]=i;for(let i=n-1;i>0;i--){const j=Math.floor(r()*(i+1));const t=a[i];a[i]=a[j];a[j]=t;}return a;}
+const SMAGIC=[77,68,83,49],SHMAGIC=[77,68],S_RH=11,S_HDR=12,S_SH=0x6d6431,S_SB=0x6d6432;
+const su32=n=>[(n>>>24)&255,(n>>>16)&255,(n>>>8)&255,n&255], srd32=(a,o)=>((a[o]<<24)|(a[o+1]<<16)|(a[o+2]<<8)|a[o+3])>>>0;
+function sframe(p,t){const o=new Uint8Array(13+p.length);o.set(SMAGIC,0);o[4]=t;o.set(su32(p.length),5);o.set(su32(crc32(p)),9);o.set(p,13);return o;}
+function sEmbReg(lsb,cb,R,seed,off){const M=cb.length,L=R*M,pm=sperm(L,seed);for(let s=0;s<L;s++)lsb[off+pm[s]]=cb[s%M];}
+function sReadReg(lsb,M,R,seed,off){const L=R*M,pm=sperm(L,seed),v=new Int32Array(M);for(let s=0;s<L;s++)v[s%M]+=lsb[off+pm[s]];const o=new Uint8Array(M);for(let i=0;i<M;i++)o[i]=(v[i]*2>R)?1:0;return o;}
+function stegoEmbed(samples,payload,type){const N=samples.length,C=sframe(payload,type),clen=C.length,Mb=clen*8,Lh=S_RH*S_HDR*8;
+  let R=0;for(let c=9;c>1;c--){if(c%2===0)continue;if(Lh+c*Mb<=N){R=c;break;}}if(!R)throw"carrier too small for payload";
+  const h=new Uint8Array(S_HDR);h.set(SHMAGIC,0);h[2]=R;h.set(su32(clen),4);h.set(su32(crc32(h.subarray(0,8))),8);
+  const lsb=new Uint8Array(N);for(let i=0;i<N;i++)lsb[i]=samples[i]&1;
+  sEmbReg(lsb,sbits(h),S_RH,S_SH,0);sEmbReg(lsb,sbits(C),R,S_SB,Lh);
+  const out=new Int16Array(N);for(let i=0;i<N;i++)out[i]=((samples[i]&~1)|lsb[i]);return{stego:out,R,clen,used:Lh+R*Mb};}
+function stegoExtract(samples){const N=samples.length,lsb=new Uint8Array(N);for(let i=0;i<N;i++)lsb[i]=samples[i]&1;
+  const Lh=S_RH*S_HDR*8,h=sunbits(sReadReg(lsb,S_HDR*8,S_RH,S_SH,0));
+  if(h[0]!==77||h[1]!==68)throw"no stego header (is this a musiclang WAV?)";
+  if(crc32(h.subarray(0,8))!==srd32(h,8))throw"header CRC failed";
+  const R=h[2],clen=srd32(h,4),Mb=clen*8,C=sunbits(sReadReg(lsb,Mb,R,S_SB,Lh));
+  if(!(C[0]===77&&C[1]===68&&C[2]===83&&C[3]===49))throw"corrupted beyond recovery (no container magic)";
+  const type=C[4],len=srd32(C,5),crc=srd32(C,9),p=C.subarray(13,13+len);
+  if(p.length!==len)throw"truncated";if(crc32(p)!==crc)throw"CRC-32 mismatch — corrupted beyond correction";
+  return{type,payload:p};}
+// WAV mono 16-bit
+function wavBlob(int16,sr){const n=int16.length,buf=new ArrayBuffer(44+n*2),v=new DataView(buf);
+  const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  w(0,"RIFF");v.setUint32(4,36+n*2,true);w(8,"WAVE");w(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);
+  v.setUint16(22,1,true);v.setUint32(24,sr,true);v.setUint32(28,sr*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);
+  w(36,"data");v.setUint32(40,n*2,true);for(let i=0;i<n;i++)v.setInt16(44+i*2,int16[i],true);return new Blob([buf],{type:"audio/wav"});}
+function parseWav(ab){const v=new DataView(ab);let o=12,ch=1,bits=16,dataOff=44,dataLen=ab.byteLength-44;
+  while(o<ab.byteLength-8){const id=String.fromCharCode(v.getUint8(o),v.getUint8(o+1),v.getUint8(o+2),v.getUint8(o+3));const sz=v.getUint32(o+4,true);
+    if(id==="fmt "){ch=v.getUint16(o+10,true);bits=v.getUint16(o+22,true);}else if(id==="data"){dataOff=o+8;dataLen=sz;break;}o+=8+sz+(sz&1);}
+  if(bits!==16)throw"need 16-bit PCM WAV";const total=dataLen/2|0,all=new Int16Array(total);for(let i=0;i<total;i++)all[i]=v.getInt16(dataOff+i*2,true);
+  if(ch===1)return all;const mono=new Int16Array(total/ch|0);for(let i=0;i<mono.length;i++)mono[i]=all[i*ch];return mono;}
+// render current notes (RN) to an int16 carrier by additive synthesis
+function renderCarrier(sr=44100){const dur=Math.max(2,(RT||3)+0.5),N=Math.ceil(dur*sr),buf=new Float32Array(N);
+  const src=RN.length?RN:[{p:60,t:0,d:dur,role:'pad'},{p:64,t:0,d:dur,role:'pad'},{p:67,t:0,d:dur,role:'pad'}];
+  for(const n of src){const f=mtf(n.p),s0=Math.floor(n.t*sr),s1=Math.min(N,Math.floor((n.t+n.d)*sr)),amp=(n.role==='lead'||n.role==='operand')?0.22:0.12;
+    for(let i=s0;i<s1;i++){const u=(i-s0)/Math.max(1,(s1-s0));const env=Math.min(1,u*12)*Math.min(1,(1-u)*12);buf[i]+=Math.sin(2*Math.PI*f*(i/sr))*amp*env;}}
+  let mx=1e-6;for(let i=0;i<N;i++)mx=Math.max(mx,Math.abs(buf[i]));const out=new Int16Array(N);for(let i=0;i<N;i++)out[i]=Math.max(-32767,Math.min(32767,Math.round(buf[i]/mx*0.3*32767)));return{int16:out,sr};}
+// ============ piano roll ============
+const cv=document.getElementById('roll'),cx=cv.getContext('2d');
+function sizeCanvas(){cv.width=cv.clientWidth*devicePixelRatio;cv.height=300*devicePixelRatio;cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
+let RN=[],RT=0;
+function draw(ph){const W=cv.clientWidth,H=300;cx.clearRect(0,0,W,H);if(!RN.length)return;
+  const pmin=Math.min(...RN.map(n=>n.p))-2,pmax=Math.max(...RN.map(n=>n.p))+2;const sx=W/RT,sy=H/(pmax-pmin);
+  const pad=RN.filter(n=>n.role==='pad').sort((a,b)=>a.t-b.t);
+  for(let j=0;j<pad.length;){const tp=pad[j].tp,t0=pad[j].t;let k=j;while(k<pad.length&&pad[k].tp===tp)k++;const t1=k<pad.length?pad[k].t:RT;
+    cx.fillStyle=`hsla(${260+tp*4},45%,55%,${0.045+0.012*(tp/2)})`;cx.fillRect(t0*sx,0,(t1-t0)*sx,H);j=k;}
+  for(const n of RN){const x=n.t*sx,y=H-(n.p-pmin)*sy,w=Math.max(2,n.d*sx-1.5),lead=(n.role==='lead'||n.role==='operand');const h=lead?Math.max(4,sy*1.1):Math.max(3,sy*0.9);
+    cx.fillStyle=css(n.col);cx.globalAlpha=lead?0.96:(n.role==='bass'?0.5:0.72);if(lead){cx.shadowColor=css(n.col);cx.shadowBlur=7;}cx.fillRect(x,y-h/2,w,h);cx.shadowBlur=0;}
+  cx.globalAlpha=1;if(ph!=null){cx.strokeStyle="#fff";cx.globalAlpha=.55;cx.beginPath();cx.moveTo(ph*sx,0);cx.lineTo(ph*sx,H);cx.stroke();cx.globalAlpha=1;}}
+// ============ demos ============
+const DEMOS={
+fibonacci:`# the printed sequence becomes the melody
+a = 0
+b = 1
+for i in range(10):
+    print(a)
+    c = a + b
+    a = b
+    b = c`,
+counter:`for i in range(1, 11):
+    print(i)`,
+fizzbuzz:`for i in range(1, 16):
+    if i % 3 == 0:
+        print(0)
+    else:
+        print(i)`,
+nested:`n = 3
+for i in range(n):
+    for j in range(n):
+        print(i + j)`,
+primes:`for n in range(2, 30):
+    d = 2
+    p = 1
+    while d * d <= n:
+        if n % d == 0:
+            p = 0
+        d = d + 1
+    if p == 1:
+        print(n)`,
+hello:`# strings work now — each letter is a chord
+print("Hello, World!")
+print("Musical " + "Dynamics")`,
+fizzwords:`for i in range(1, 16):
+    if i % 15 == 0:
+        print("FizzBuzz")
+    elif i % 3 == 0:
+        print("Fizz")
+    elif i % 5 == 0:
+        print("Buzz")
+    else:
+        print(i)`};
+// ============ wiring ============
+const $=id=>document.getElementById(id);
+function params(){return{mode:$('mode').value,key:+$('key').value,octave:+$('octave').value,climb:+$('climb').value,
+  tempo:120/+$('tempo').value,feel:$('feel').value,melody:$('melody').value,variation:Math.max(0,+$('variation').value|0)};}
+function arrEq(a,b){return a.length===b.length&&a.every((x,i)=>x[0]===b[i][0]&&x[1]===b[i][1]);}
+function compile(){
+  $('climbV').textContent=`+${$('climb').value}°`;$('tempoV').textContent=`${$('tempo').value} bpm`;TIMBRE=$('timbre').value;
+  const emode=$('emode').value;
+  let code,regs,r;
+  try{({code,regs}=compilePython($('src').value));r=run(code);}
+  catch(e){$('out').className="out err";$('out').textContent="⚠ "+e;$('chips').innerHTML="";$('stats').innerHTML="";$('decstats').innerHTML="";$('recpy').textContent="—";$('badge').textContent="";$('badge').className="badge";RN=[];sizeCanvas();draw(null);return null;}
+  $('out').className="out";$('out').textContent=r.out.join("  ")||"(no output)";$('outhint').textContent=`${r.out.length} values`;
+  // encode trace by mode
+  const traceops=r.trace.map(s=>[s.op,s.arg]);
+  const encTrace = emode==='score' ? code.map(([op,arg])=>({op,arg,iter:0,val:null})) : r.trace;
+  const encOps   = emode==='score' ? code : traceops;
+  const P=params();const real=realize(encTrace,P);RN=real.notes;RT=real.total;
+  // compiled chips (static program)
+  $('chips').innerHTML=code.map(([op,arg])=>{const c=css(COL[op]);const q=QFAMILY[op][P.variation%QFAMILY[op].length];const nm=CHORDNAME[q.join(',')]||q.join('·');
+    return `<span class="chip" style="border-color:${c}33"><b style="color:${c}">${op}</b>${arg!=null?` <span class="arg">${arg}</span>`:''} <span style="color:var(--dim)">${nm}</span></span>`;}).join('');
+  $('opcount').textContent=`${code.length} opcodes · ${Object.keys(regs).length} registers`;
+  $('stats').innerHTML=`encoding <b>${emode}</b><br><b>${code.length}</b> opcodes → played <b>${encTrace.length}</b><br>loop ran <b>${r.maxIter}</b>×<br><b>${RN.length}</b> notes · <b>${RT.toFixed(1)}s</b>`;
+  // DECODE the very notes we will play
+  let dec,decOut,opMatch,outMatch,recPy;
+  try{
+    dec=decodeNotes(RN);
+    opMatch=arrEq(dec,encOps);
+    decOut = emode==='score' ? run(dec).out : runTrace(dec);
+    outMatch = JSON.stringify(decOut)===JSON.stringify(r.out);
+    recPy = emode==='score' ? decompile(dec) : (decompile(dec));
+  }catch(e){ dec=[];opMatch=false;outMatch=false;recPy="decode error: "+e; }
+  $('decstats').innerHTML=`recovered <b>${dec.length}</b> opcodes — ${opMatch?'<span style="color:var(--ok)">identical to encoder ✓</span>':'<span style="color:var(--ctrl)">mismatch ✗</span>'}<br>`+
+    `decoded output = [ ${decOut.join(', ')} ] — ${outMatch?'<span style="color:var(--ok)">matches ✓</span>':'<span style="color:var(--ctrl)">differs ✗</span>'}`;
+  $('recpy').textContent=recPy + (emode==='perf' ? "\n\n# (performance encodes the EXECUTION, so this is the\n#  unrolled straight-line trace — switch to 'score' to\n#  recover the looped source.)" : "");
+  const allgood=opMatch&&outMatch;
+  $('badge').textContent=allgood?"round trip verified ✓":"✗";
+  $('badge').className="badge "+(allgood?"good":"bad");
+  $('why').innerHTML=`Mode <em>${P.mode}</em> picks the pitch alphabet; <em>variation ${P.variation}</em> deterministically chooses each opcode's chord (from its family) and voicing; `+
+    (emode==='score'?`in <em>score</em> mode loops play once so the music maps cleanly back to your source.`:`in <em>performance</em> mode the loop body repeats and climbs <em>+${$('climb').value}°</em> per pass — decoding then recovers the execution, and replaying it reproduces the output.`);
+  sizeCanvas();draw(null);return real;}
+async function play(){if(!ac)initAudio();await ac.resume();TIMBRE=$('timbre').value;const real=compile();if(!real)return;
+  playing=true;const t0=ac.currentTime;for(const n of RN)voice(n,0);
+  (function anim(){if(!playing)return;const ph=ac.currentTime-t0;draw(ph);if(ph<RT+0.3)requestAnimationFrame(anim);else playing=false;})();}
+$('play').onclick=play;$('stop').onclick=()=>{playing=false;if(ac){ac.close();ac=null;}};
+$('reroll').onclick=()=>{$('variation').value=(+$('variation').value|0)+1;compile();};
+$('demo').onchange=e=>{$('src').value=DEMOS[e.target.value];compile();};
+['emode','mode','key','octave','climb','tempo','feel','melody','timbre','variation'].forEach(id=>$(id).addEventListener('input',compile));
+$('src').addEventListener('input',()=>{clearTimeout(window._t);window._t=setTimeout(compile,300);});
+$('src').value=DEMOS.fibonacci;window.addEventListener('resize',()=>{sizeCanvas();draw(null);});compile();
+
+// ============ ④ compose · program by ear ============
+let composed=[];
+const PGROUPS=[["data",["PUSH"]],["memory",["LOAD","STORE"]],["math",["ADD","SUB","MUL","DIV","MOD"]],
+ ["compare",["LT","GT","LE","GE","EQ","NE"]],["stack",["DUP"]],["control",["IF","ELSE","WHILE","END"]],["i/o",["OUT"]]];
+const chordOf=op=>{const q=QFAMILY[op][0];return CHORDNAME[q.join(',')]||q.join('·');};
+function buildPalette(){const pal=$('palette');pal.innerHTML='';
+  for(const [grp,ops] of PGROUPS){const wrap=document.createElement('div');wrap.style.cssText='display:flex;flex-direction:column;gap:4px';
+    const lab=document.createElement('div');lab.textContent=grp;lab.style.cssText='font-family:"JetBrains Mono",monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)';wrap.appendChild(lab);
+    const row=document.createElement('div');row.style.cssText='display:flex;gap:4px';
+    for(const op of ops){const b=document.createElement('button');b.dataset.op=op;b.style.cssText='padding:8px 9px;font-size:11px;flex-direction:column;line-height:1.2';
+      b.innerHTML=`${op}<br><span style="color:var(--dim);font-size:9px">${chordOf(op)}</span>`;b.onclick=()=>addOp(op);row.appendChild(b);}
+    wrap.appendChild(row);pal.appendChild(wrap);}
+  refreshPalette();}
+function refreshPalette(){const constrain=$('constrain').checked;const legal=constrain?legalNext(composed):null;
+  document.querySelectorAll('#palette button').forEach(b=>{const ok=!constrain||legal.has(b.dataset.op);b.disabled=!ok;b.style.opacity=ok?'1':'.25';b.style.cursor=ok?'pointer':'not-allowed';});}
+function addOp(op){if($('constrain').checked&&!legalNext(composed).has(op))return;
+  const arg=HAS_ARG.has(op)?(parseInt($('operand').value)||0):null;composed.push([op,arg]);renderCompose();playBrick(op,arg);}
+async function ensureAudio(){if(!ac)initAudio();await ac.resume();TIMBRE=$('timbre').value;}
+async function playBrick(op,arg){await ensureAudio();const notes=realize([{op,arg,iter:0,val:null}],params()).notes;for(const n of notes)voice(n,0);}
+async function playSeq(){if(!composed.length)return;await ensureAudio();const tr=composed.map(([op,arg])=>({op,arg,iter:0,val:null}));
+  const real=realize(tr,params());RN=real.notes;RT=real.total;sizeCanvas();playing=true;const t0=ac.currentTime;for(const n of RN)voice(n,0);
+  (function anim(){if(!playing)return;const ph=ac.currentTime-t0;draw(ph);if(ph<RT+0.3)requestAnimationFrame(anim);else playing=false;})();}
+function renderCompose(){refreshPalette();
+  $('cchips').innerHTML=composed.map(([op,arg],i)=>{const c=css(COL[op]);return `<span class="chip" style="border-color:${c}33"><b style="color:${c}">${op}</b>${arg!=null?` <span class="arg">${arg}</span>`:''}</span>`;}).join('')||'<span style="color:var(--dim);font-family:\'JetBrains Mono\',monospace;font-size:11px">empty</span>';
+  const res=runSafe(composed);
+  if(res.ok){$('cbadge').textContent="valid program ✓";$('cbadge').className="badge good";$('cout').innerHTML=`output = [ ${res.out.join(', ')} ]`;}
+  else{$('cbadge').textContent=composed.length?("incomplete: "+res.err):"";$('cbadge').className="badge "+(composed.length?"bad":"");$('cout').innerHTML=composed.length?`<span style="color:var(--dim)">not yet a complete program — ${res.err}</span>`:'';}
+  let py;try{py=decompile(composed);}catch(e){py=null;}
+  $('cpy').textContent = py && py.trim() ? py : "(opcodes above don't map to straight-line Python yet — keep building)";}
+$('playseq').onclick=playSeq;
+$('undo').onclick=()=>{composed.pop();renderCompose();};
+$('clearseq').onclick=()=>{composed=[];renderCompose();};
+$('constrain').addEventListener('change',refreshPalette);
+$('operand').addEventListener('input',()=>{});
+buildPalette();renderCompose();
+
+// ============ ⑤ stego ============
+$('stegoembed').onclick=()=>{
+  try{
+    const payload=new TextEncoder().encode($('stegomsg').value);
+    const car=renderCarrier();const {stego,R,used}=stegoEmbed(car.int16,payload,1);
+    // verify in-memory before download
+    const chk=stegoExtract(stego);const okText=new TextDecoder().decode(chk.payload)===$('stegomsg').value;
+    const blob=wavBlob(stego,car.sr);const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download="musical_dynamics_stego.wav";a.click();
+    $('stegoout').innerHTML=`hid <b>${payload.length}</b> bytes in <b>${used}</b> samples · redundancy <b>${R}×</b> · max change <b>1 LSB</b> (≈ −96 dBFS)<br>self-check decoded back: ${okText?'<span style="color:var(--ok)">verified ✓</span>':'<span style="color:var(--ctrl)">failed</span>'} · <span style="color:var(--dim)">downloaded musical_dynamics_stego.wav — re-upload it below to prove decode</span>`;
+  }catch(e){$('stegoout').innerHTML=`<span style="color:var(--ctrl)">⚠ ${e}</span>`;}
+};
+$('stegodecode').onclick=()=>{const f=$('stegofile').files[0];if(!f){$('stegoout').innerHTML='<span style="color:var(--dim)">choose a .wav first</span>';return;}
+  const fr=new FileReader();fr.onload=()=>{try{const mono=parseWav(fr.result);const {type,payload}=stegoExtract(mono);
+    const desc=type===1?('text: “'+new TextDecoder().decode(payload)+'”'):(['raw','text','jpeg','png'][type]||'type'+type)+', '+payload.length+' bytes';
+    $('stegoout').innerHTML=`<span style="color:var(--ok)">decoded ✓</span> — ${desc}`;
+  }catch(e){$('stegoout').innerHTML=`<span style="color:var(--ctrl)">⚠ ${e}</span>`;}};fr.readAsArrayBuffer(f);};
+
+</script>
+</body>
+</html>

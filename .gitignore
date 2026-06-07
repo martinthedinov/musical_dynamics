@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Bundle / build artifacts (regenerable — not for the repo)
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor cruft
+*.swp
+.idea/
+.vscode/
