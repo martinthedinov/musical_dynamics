@@ -175,8 +175,9 @@ const QFAMILY={PUSH:[[0,4,7],[0,4,7,9]],LOAD:[[0,3,7],[0,3,7,10]],STORE:[[0,5,7]
  ADD:[[0,2,7]],SUB:[[0,4,7,11]],MUL:[[0,4,8]],DIV:[[0,3,8]],MOD:[[0,4,6]],
  EQ:[[0,4,7,10]],NE:[[0,6]],LT:[[0,3,7,9]],GT:[[0,3,7,11]],LE:[[0,4,8,10]],GE:[[0,3,6,10]],
  IF:[[0,3,6],[0,2,3,7]],ELSE:[[0,1,2]],WHILE:[[0,3,6,9]],END:[[0,7],[0,1,7]],OUT:[[0,2,4,7]],DUP:[[0,5]],MKSTR:[[0,2,5],[0,2,5,9]]};
-const HAS_ARG=new Set(["PUSH","LOAD","STORE","MKSTR"]);const OPERAND_BASE=84,OPERAND_RADIX=12;
-function encOperand(v){v=v|0;if(v<0)throw"operand must be ≥0";const d=[];if(v===0)d.push(0);else while(v>0){d.push(v%OPERAND_RADIX);v=Math.floor(v/OPERAND_RADIX);}if(d.length>3)throw"operand too large (<1728)";return d.map((dig,i)=>OPERAND_BASE+i*12+dig);}
+const HAS_ARG=new Set(["PUSH","LOAD","STORE","MKSTR"]);const OPERAND_BASE=24,OPERAND_RADIX=12;
+const OPERAND_BANDS=Math.floor((127-OPERAND_BASE-(OPERAND_RADIX-1))/12)+1,OPERAND_MAX=Math.pow(OPERAND_RADIX,OPERAND_BANDS)-1; // base-12 across MIDI-safe bands; lossless 0..OPERAND_MAX (covers all Unicode)
+function encOperand(v){v=v|0;if(v<0)throw"operand must be ≥0";if(v>OPERAND_MAX)throw"operand too large (max "+OPERAND_MAX+")";const d=[];if(v===0)d.push(0);else while(v>0){d.push(v%OPERAND_RADIX);v=Math.floor(v/OPERAND_RADIX);}return d.map((dig,i)=>OPERAND_BASE+i*12+dig);}
 function decOperand(ps){let v=0;for(const p of ps){const k=p-OPERAND_BASE;v+=(k%12)*Math.pow(OPERAND_RADIX,Math.floor(k/12));}return v;}
 const QREV={};for(const[op,fam]of Object.entries(QFAMILY))for(const q of fam){
   const sig=[...new Set(q.map(x=>((x%12)+12)%12))].sort((a,b)=>a-b).join(',');
@@ -250,7 +251,7 @@ function run(toks,maxSteps=2000000){const pair={},opener={},st=[];
   let stack=[],regs={},out=[],trace=[],loops=[],ip=0,steps=0,mx=0;const isum=()=>loops.reduce((s,c)=>s+c.iter,0);
   const emit=(op,arg,val=null)=>trace.push({op,arg,iter:isum(),val});
   while(ip<toks.length){if(++steps>maxSteps)throw"step limit (infinite loop?)";const[op,arg]=toks[ip];
-    switch(op){case'PUSH':stack.push(arg);break;case'LOAD':stack.push(regs[arg]||0);break;case'STORE':regs[arg]=stack.pop();break;
+    switch(op){case'PUSH':stack.push(arg);break;case'LOAD':stack.push(arg in regs?regs[arg]:0);break;case'STORE':regs[arg]=stack.pop();break;
       case'MKSTR':{let s='';for(let k=0;k<arg;k++)s=String.fromCodePoint(stack.pop())+s;stack.push(s);}break;
       case'ADD':{const b=stack.pop(),a=stack.pop();stack.push(a+b);}break;case'SUB':{const b=stack.pop(),a=stack.pop();stack.push(a-b);}break;
       case'MUL':{const b=stack.pop(),a=stack.pop();stack.push(a*b);}break;case'DIV':{const b=stack.pop(),a=stack.pop();stack.push(b?Math.floor(a/b):0);}break;
@@ -265,7 +266,7 @@ function run(toks,maxSteps=2000000){const pair={},opener={},st=[];
     emit(op,arg);ip++;}
   return{out,trace,maxIter:mx+1};}
 function runTrace(toks){let stack=[],regs={},out=[];for(const[op,arg]of toks){
-  switch(op){case'PUSH':stack.push(arg);break;case'LOAD':stack.push(regs[arg]||0);break;case'STORE':regs[arg]=stack.pop();break;
+  switch(op){case'PUSH':stack.push(arg);break;case'LOAD':stack.push(arg in regs?regs[arg]:0);break;case'STORE':regs[arg]=stack.pop();break;
     case'MKSTR':{let s='';for(let k=0;k<arg;k++)s=String.fromCodePoint(stack.pop())+s;stack.push(s);}break;
     case'ADD':{const b=stack.pop(),a=stack.pop();stack.push(a+b);}break;case'SUB':{const b=stack.pop(),a=stack.pop();stack.push(a-b);}break;
     case'MUL':{const b=stack.pop(),a=stack.pop();stack.push(a*b);}break;case'DIV':{const b=stack.pop(),a=stack.pop();stack.push(b?Math.floor(a/b):0);}break;

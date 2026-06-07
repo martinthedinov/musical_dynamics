@@ -177,6 +177,8 @@ if __name__ == "__main__":
     except Exception as e: print("  burst:", e)
 
     # 3) round trip through an actual .wav file on disk
-    write_wav("/home/claude/carrier_stego.wav", stego2, params)
-    pt,gg = extract_file("/home/claude/carrier_stego.wav")
-    print("\n  round trip through carrier_stego.wav:", gg==jpeg, "| type", TYPES[pt])
+    import os, tempfile
+    wavpath = os.path.join(tempfile.gettempdir(), "carrier_stego.wav")
+    write_wav(wavpath, stego2, params)
+    pt,gg = extract_file(wavpath)
+    print("\n  round trip through", wavpath + ":", gg==jpeg, "| type", TYPES[pt])

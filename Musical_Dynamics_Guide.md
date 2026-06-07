@@ -107,11 +107,13 @@ intervals.
 ### 4.2 Operands → a fixed "data register"
 
 `PUSH`, `LOAD`, `STORE`, and `MKSTR` carry a number (a literal, a variable index, or a string
-length). It is written **losslessly** as **base‑12 digits on a fixed set of pitches** (1–3
-notes starting at MIDI 84), where each digit's octave band encodes its position. These operand
-notes are **never transposed** by key/octave/climb, so they're recovered exactly. The range is
-0–1727 per operand, which covers character codes (≤127), variable indices, and string lengths.
-Larger integer literals are built with arithmetic (e.g. `100 * 100`).
+length). It is written **losslessly** as **base‑12 digits on a fixed set of pitches** (one
+octave band per digit, starting low so every band stays within MIDI 0–127), where each digit's
+octave band encodes its position. These operand notes are **never transposed** by
+key/octave/climb, so they're recovered exactly. The range is **0–429,981,695** per operand
+(12⁸−1), which covers **every Unicode code point** (so any character — CJK, emoji — is fine),
+variable indices, and string lengths. Larger integer literals are built with arithmetic
+(e.g. `100 * 100`).
 
 ### 4.3 Two encoding modes
 
@@ -259,7 +261,7 @@ ptype)` and read it back with `mc_stego.extract_file(out_wav)`.
 - The language is a deliberately small, integer/string subset of Python (see §3.2).
 - `for` loops decompile back to `while` loops (they are compiled that way); the behavior is
   identical, the surface form differs.
-- A single operand literal is limited to 0–1727; build larger constants arithmetically.
+- A single operand literal is limited to 0–429,981,695 (12⁸−1); build larger constants arithmetically.
 - In **performance** mode, decoded source is the unrolled execution (loops are not re‑rolled).
 - The steganography is robust in proportion to the carrier's spare capacity: a longer piece
   tolerates more corruption. It always **fails safe** (detect‑and‑refuse) rather than returning

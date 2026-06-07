@@ -28,18 +28,22 @@ QFAMILY = {
     "MKSTR": [(0,2,5),(0,2,5,9)],      # assemble a string from N popped char codes
 }
 HAS_ARG = {"PUSH","LOAD","STORE","MKSTR"}
-OPERAND_BASE = 84                      # fixed "data register"; never transposed
-OPERAND_RADIX = 12                     # operands written base-12 across up to 3 octave bands
+OPERAND_BASE  = 24                     # fixed "data register" (kept low to leave MIDI headroom); never transposed
+OPERAND_RADIX = 12                     # operands written base-12, one octave band per digit
+# A digit lives in band b at pitch OPERAND_BASE + 12*b + digit. The top pitch of the highest
+# usable band must stay within MIDI 0..127, which bounds how many bands (hence the max value) we get.
+OPERAND_BANDS = (127 - OPERAND_BASE - (OPERAND_RADIX - 1)) // 12 + 1   # = 8 with base 24
+OPERAND_MAX   = OPERAND_RADIX ** OPERAND_BANDS - 1                     # = 429,981,695
 
 def enc_operand(v):
-    """non-negative int -> list of pitches (1..3 notes), digit position = octave band."""
-    v = int(v)
+    """non-negative int -> list of pitches (>=1 note); each note's octave band = its base-12 digit position.
+       Lossless for 0..OPERAND_MAX, which covers every Unicode code point (<=0x10FFFF) and large literals."""
+    v0 = v = int(v)
     if v < 0: raise ValueError("operands must be non-negative")
-    digits = []
-    if v == 0: digits = [0]
-    else:
-        while v > 0: digits.append(v % OPERAND_RADIX); v //= OPERAND_RADIX
-    if len(digits) > 3: raise ValueError("operand %d too large (max 1727 per literal)" % v)
+    if v > OPERAND_MAX:
+        raise ValueError("operand %d too large (max %d per literal; build bigger values arithmetically)" % (v0, OPERAND_MAX))
+    digits = [0] if v == 0 else []
+    while v > 0: digits.append(v % OPERAND_RADIX); v //= OPERAND_RADIX
     return [OPERAND_BASE + i*12 + d for i, d in enumerate(digits)]
 
 def dec_operand(pitches):
@@ -323,6 +327,233 @@ def decompile(toks):
         ip+=1
     return "\n".join(lines)
 
+# ================= MD language: a tiny C/Python-flavored surface over the SAME opcodes =================
+# The opcode list is the canonical IR, so Python <-> MD <-> music all convert through it.
+#   stmt := ['let'] NAME '=' expr ';'
+#         | NAME ('+='|'-='|'*='|'//='|'%=') expr ';'
+#         | 'print' '(' expr ')' ';'
+#         | 'if' '(' expr ')' '{' stmt* '}' ('elif' '(' expr ')' '{' stmt* '}')* ['else' '{' stmt* '}']
+#         | 'while' '(' expr ')' '{' stmt* '}'
+#         | 'for' '(' NAME 'in' 'range' '(' expr [',' expr] ')' ')' '{' stmt* '}'
+#   expr := ints, "strings", names, ( ) , unary -, and  + - * // %  <  >  <=  >=  ==  !=
+#   comments := '#' to end of line, or '/* ... */'.  ('//' is floor-division, never a comment.)
+_MD_KW  = {"let", "if", "elif", "else", "while", "for", "in", "range", "print"}
+_MD_OPS = ["//=", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "%=",
+           "=", "<", ">", "+", "-", "*", "%", "(", ")", "{", "}", ",", ";"]
+_MD_ESC = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", '"': '"', "'": "'"}
+
+def _md_lex(s):
+    i, n, out = 0, len(s), []
+    while i < n:
+        c = s[i]
+        if c in " \t\r\n": i += 1; continue
+        if c == "#":
+            while i < n and s[i] != "\n": i += 1
+            continue
+        if c == "/" and i + 1 < n and s[i+1] == "*":
+            i += 2
+            while i + 1 < n and not (s[i] == "*" and s[i+1] == "/"): i += 1
+            i += 2; continue
+        if c == '"' or c == "'":
+            q, j, buf = c, i + 1, []
+            while j < n and s[j] != q:
+                if s[j] == "\\" and j + 1 < n: buf.append(_MD_ESC.get(s[j+1], s[j+1])); j += 2
+                else: buf.append(s[j]); j += 1
+            if j >= n: raise ValueError("MD: unterminated string")
+            out.append(("str", "".join(buf))); i = j + 1; continue
+        if c.isdigit():
+            j = i
+            while j < n and s[j].isdigit(): j += 1
+            out.append(("num", int(s[i:j]))); i = j; continue
+        if c.isalpha() or c == "_":
+            j = i
+            while j < n and (s[j].isalnum() or s[j] == "_"): j += 1
+            w = s[i:j]; out.append(("kw" if w in _MD_KW else "name", w)); i = j; continue
+        for op in _MD_OPS:
+            if s.startswith(op, i): out.append(("op", op)); i += len(op); break
+        else: raise ValueError("MD: bad token near %r" % s[i:i+12])
+    return out
+
+_MD_PREC = {"<":1,">":1,"<=":1,">=":1,"==":1,"!=":1,"+":2,"-":2,"*":3,"%":3,"//":3}
+
+def _md_parse(toks):
+    """recursive-descent -> list of statement AST dicts (same shape the codegen below expects)."""
+    pos = [0]
+    def peek(o=0):
+        k = pos[0] + o
+        return toks[k] if k < len(toks) else ("eof", "")
+    def nxt(): t = peek(); pos[0] += 1; return t
+    def eat(val):
+        t = nxt()
+        if t[1] != val: raise ValueError("MD: expected %r, got %r" % (val, t[1]))
+    def name():
+        t = nxt()
+        if t[0] != "name": raise ValueError("MD: expected a name, got %r" % (t[1],))
+        return t[1]
+    def atom():
+        t = nxt()
+        if t[0] == "num": return {"k": "num", "v": t[1]}
+        if t[0] == "str": return {"k": "str", "v": t[1]}
+        if t[0] == "name": return {"k": "name", "v": t[1]}
+        if t == ("op", "("):
+            e = expr(0); eat(")"); return e
+        if t == ("op", "-"): return {"k": "neg", "e": atom()}
+        raise ValueError("MD: unexpected token %r" % (t[1],))
+    def expr(minp):
+        left = atom()
+        while True:
+            t = peek()
+            if t[0] == "op" and t[1] in _MD_PREC and _MD_PREC[t[1]] >= minp:
+                op = nxt()[1]; right = expr(_MD_PREC[op] + 1)
+                left = {"k": "bin", "op": op, "l": left, "r": right}
+            else: return left
+    def paren_expr(): eat("("); e = expr(0); eat(")"); return e
+    def block():
+        eat("{"); body = []
+        while not (peek() == ("op", "}")):
+            if peek()[0] == "eof": raise ValueError("MD: unclosed '{'")
+            body.append(statement())
+        eat("}"); return body
+    def if_stmt():
+        nxt()  # 'if' or 'elif'
+        test = paren_expr(); body = block(); orelse = []
+        if peek() == ("kw", "elif"): orelse = [if_stmt()]
+        elif peek() == ("kw", "else"): nxt(); orelse = block()
+        return {"t": "if", "test": test, "body": body, "orelse": orelse}
+    def for_stmt():
+        nxt(); eat("("); var = name()
+        if nxt() != ("kw", "in"):    raise ValueError("MD: for expects 'in'")
+        if nxt() != ("kw", "range"): raise ValueError("MD: for expects 'range(...)'")
+        eat("("); a = expr(0)
+        if peek() == ("op", ","): nxt(); start, stop = a, expr(0)
+        else: start, stop = {"k": "num", "v": 0}, a
+        eat(")"); eat(")")
+        return {"t": "for", "var": var, "start": start, "stop": stop, "body": block()}
+    def statement():
+        t = peek()
+        if t == ("kw", "if"):    return if_stmt()
+        if t == ("kw", "for"):   return for_stmt()
+        if t == ("kw", "while"):
+            nxt(); test = paren_expr(); return {"t": "while", "test": test, "body": block()}
+        if t == ("kw", "print"):
+            nxt(); eat("("); e = expr(0); eat(")"); eat(";"); return {"t": "print", "e": e}
+        if t == ("kw", "let"):
+            nxt(); nm = name(); eat("="); e = expr(0); eat(";"); return {"t": "assign", "name": nm, "e": e}
+        if t[0] == "name":
+            nm = nxt()[1]; op = nxt()
+            if op == ("op", "="): e = expr(0); eat(";"); return {"t": "assign", "name": nm, "e": e}
+            if op[0] == "op" and op[1] in ("+=", "-=", "*=", "//=", "%="):
+                e = expr(0); eat(";"); return {"t": "aug", "name": nm, "op": op[1][:-1], "e": e}
+            raise ValueError("MD: bad statement after %r (op %r)" % (nm, op[1]))
+        raise ValueError("MD: unexpected %r" % (t[1],))
+    prog = []
+    while peek()[0] != "eof": prog.append(statement())
+    return prog
+
+def compile_md(src):
+    """MD source -> (opcodes, regs). Emits the identical opcode patterns as compile_python
+       (for-loops desugar to while), so the music/decoder/decompiler all behave the same."""
+    prog = _md_parse(_md_lex(src))
+    regs, code, tmp = {}, [], [0]
+    def reg(nm):
+        if nm not in regs: regs[nm] = len(regs)
+        return regs[nm]
+    def newtmp(): tmp[0] += 1; return reg("__t%d" % tmp[0])
+    def E(e):
+        if   e["k"] == "num":  code.append(("PUSH", e["v"]))
+        elif e["k"] == "str":
+            for ch in e["v"]: code.append(("PUSH", ord(ch)))
+            code.append(("MKSTR", len(e["v"])))
+        elif e["k"] == "name": code.append(("LOAD", reg(e["v"])))
+        elif e["k"] == "neg":  code.append(("PUSH", 0)); E(e["e"]); code.append(("SUB", None))
+        elif e["k"] == "bin":  E(e["l"]); E(e["r"]); code.append((BINOP_SYM.get(e["op"]) or CMPOP_SYM[e["op"]], None))
+        else: raise ValueError("MD expr?")
+    def B(ss):
+        for s in ss: S(s)
+    def S(s):
+        t = s["t"]
+        if   t == "assign": E(s["e"]); code.append(("STORE", reg(s["name"])))
+        elif t == "aug":
+            r = reg(s["name"]); code.append(("LOAD", r)); E(s["e"]); code.append((BINOP_SYM[s["op"]], None)); code.append(("STORE", r))
+        elif t == "print":  E(s["e"]); code.append(("OUT", None))
+        elif t == "while":  E(s["test"]); code.append(("WHILE", None)); B(s["body"]); E(s["test"]); code.append(("END", None))
+        elif t == "if":
+            E(s["test"]); code.append(("IF", None)); B(s["body"])
+            if s["orelse"]: code.append(("ELSE", None)); B(s["orelse"])
+            code.append(("END", None))
+        elif t == "for":
+            v = reg(s["var"]); E(s["start"]); code.append(("STORE", v)); et = newtmp(); E(s["stop"]); code.append(("STORE", et))
+            code.append(("LOAD", v)); code.append(("LOAD", et)); code.append(("LT", None)); code.append(("WHILE", None))
+            B(s["body"])
+            code.append(("LOAD", v)); code.append(("PUSH", 1)); code.append(("ADD", None)); code.append(("STORE", v))
+            code.append(("LOAD", v)); code.append(("LOAD", et)); code.append(("LT", None)); code.append(("END", None))
+        else: raise ValueError("MD stmt?")
+    B(prog); return code, regs
+
+# operator symbol -> opcode (shared by MD compiler and both decompilers)
+BINOP_SYM = {"+":"ADD","-":"SUB","*":"MUL","%":"MOD","//":"DIV"}
+CMPOP_SYM = {"<":"LT",">":"GT","<=":"LE",">=":"GE","==":"EQ","!=":"NE"}
+
+def _md_str(s):
+    out = ['"']
+    for ch in s:
+        out.append({'"': '\\"', "\\": "\\\\", "\n": "\\n", "\t": "\\t", "\r": "\\r"}.get(ch, ch))
+    out.append('"'); return "".join(out)
+
+def decompile_md(toks):
+    """opcodes -> MD source (the brace/semicolon surface). Mirror of decompile() for Python."""
+    pair, opener_of, st = {}, {}, []
+    for i, (op, _) in enumerate(toks):
+        if op in ("IF", "WHILE"): st.append(i)
+        elif op == "ELSE": pair[st[-1]] = i
+        elif op == "END": s = st.pop(); pair.setdefault(s, i); opener_of[i] = s
+    BIN = {"ADD":"+","SUB":"-","MUL":"*","MOD":"%","DIV":"//"}; CMP = {"LT":"<","GT":">","LE":"<=","GE":">=","EQ":"==","NE":"!="}
+    lines, indent, S = [], 0, []
+    def put(txt): lines.append("    " * indent + txt)
+    ip = 0
+    while ip < len(toks):
+        op, arg = toks[ip]
+        if   op == "PUSH": S.append(str(arg))
+        elif op == "LOAD": S.append("v%d" % arg)
+        elif op == "MKSTR":
+            parts = [S.pop() for _ in range(arg)][::-1]
+            try: S.append(_md_str("".join(chr(int(x)) for x in parts)))
+            except Exception: S.append("str(%s)" % (parts,))
+        elif op == "STORE": put("v%d = %s;" % (arg, _strip(S.pop())))
+        elif op in BIN: b, a = S.pop(), S.pop(); S.append("(%s %s %s)" % (a, BIN[op], b))
+        elif op in CMP: b, a = S.pop(), S.pop(); S.append("(%s %s %s)" % (a, CMP[op], b))
+        elif op == "DUP": S.append(S[-1])
+        elif op == "OUT": put("print(%s);" % _strip(S.pop()))
+        elif op == "IF": put("if (%s) {" % _strip(S.pop())); indent += 1
+        elif op == "ELSE": indent -= 1; put("} else {"); indent += 1
+        elif op == "WHILE": put("while (%s) {" % _strip(S.pop())); indent += 1
+        elif op == "END":
+            indent -= 1
+            if toks[opener_of[ip]][0] == "WHILE" and S: S.pop()   # discard the duplicated end-of-loop condition
+            put("}")
+        ip += 1
+    return "\n".join(lines)
+
+# ---- conversions through the opcode IR (both directions, all three surfaces) ----
+def python_to_md(src): return decompile_md(compile_python(src)[0])
+def md_to_python(src): return decompile(compile_md(src)[0])
+
+# MD versions of the demos (same programs, MD syntax)
+MD_DEMOS = {
+"counter":  "for (i in range(1, 11)) {\n    print(i);\n}",
+"fizzbuzz": ('for (i in range(1, 16)) {\n'
+             '    if (i % 15 == 0) { print("FizzBuzz"); }\n'
+             '    elif (i % 3 == 0) { print("Fizz"); }\n'
+             '    elif (i % 5 == 0) { print("Buzz"); }\n'
+             '    else { print(i); }\n}'),
+"hello":    'print("Hello, World!");\nprint("Musical " + "Dynamics");',
+"fib":      ("let a = 0;\nlet b = 1;\n"
+             "for (i in range(10)) {\n    print(a);\n    let c = a + b;\n    a = b;\n    b = c;\n}"),
+"primes":   ("for (n in range(2, 30)) {\n    let d = 2;\n    let p = 1;\n"
+             "    while (d * d <= n) {\n        if (n % d == 0) { p = 0; }\n        d = d + 1;\n    }\n"
+             "    if (p == 1) { print(n); }\n}"),
+}
+
 # ================= demos =================
 DEMOS={
 "fibonacci":"a = 0\nb = 1\nfor i in range(10):\n    print(a)\n    c = a + b\n    a = b\n    b = c",
@@ -368,14 +599,41 @@ if __name__=="__main__":
         print(f"{name:10} ok={ok}  out={ref}")
         print(f"            score: exact-program-recovery(12 renderings)={score_ok}  recovered-output={score_out==ref}")
         print(f"            perf : exact-trace-recovery(12 renderings)={perf_ok}  replayed-output={perf_out==ref}  decompiled-runs={dout==ref}")
+    # ---- MD language: compile, decompile, round-trip, and bridge to/from Python ----
+    print("\n--- MD language (C/Python-flavored surface over the same opcodes) ---")
+    md_ok=True
+    for name,src in MD_DEMOS.items():
+        code,_=compile_md(src)
+        out=as_lines(run(code)[0])
+        ref=pyrun(decompile(code))                              # opcodes -> Python -> run
+        idem=(compile_md(decompile_md(code))[0]==code)          # MD -> opcodes -> MD -> opcodes is stable
+        music=(decode_notes(realize([{"op":op,"arg":arg,"iter":0,"val":None} for op,arg in code],variation=3)[0])==code)
+        ok=(out==ref and idem and music); md_ok&=ok
+        print(f"  {name:9} ok={ok}  out={out}  (decompile-idempotent={idem}, music-roundtrip={music})")
+    # cross-bridge: every Python demo -> MD -> opcodes reproduces the original behavior, and back
+    bridge_ok=True
+    for name,src in DEMOS.items():
+        md=python_to_md(src)
+        if run(compile_md(md)[0])[0]!=run(compile_python(src)[0])[0]: bridge_ok=False
+        if pyrun(md_to_python(MD_DEMOS["hello"]))!=pyrun("print('Hello, World!')\nprint('Musical '+'Dynamics')"): bridge_ok=False
+    print(f"  python<->MD bridge preserves behavior on all {len(DEMOS)} demos: {bridge_ok}")
+    # operand encoding now spans far beyond 1727 (covers all Unicode + large literals)
+    op_ok=all(dec_operand(enc_operand(v))==v for v in [0,1,127,1727,2000,20013,127925,0x10FFFF,OPERAND_MAX])
+    uni="print(\"♪ 中 🎵\");"; uni_code,_=compile_md(uni)
+    uni_music=(decode_notes(realize([{"op":op,"arg":arg,"iter":0,"val":None} for op,arg in uni_code],variation=1)[0])==uni_code)
+    print(f"  operand enc/dec exact up to {OPERAND_MAX} (incl. emoji/CJK): {op_ok}; unicode prog music-roundtrips: {uni_music}")
+    allok &= (md_ok and bridge_ok and op_ok and uni_music)
     # ---- full round trip THROUGH A REAL .mid FILE (score mode -> recover looped Python) ----
+    import os, tempfile
+    midpath=os.path.join(tempfile.gettempdir(),"md_roundtrip.mid")
     print("\n--- round trip through an actual MIDI file (Hello World, score mode) ---")
     code,_=compile_python(DEMOS["hello"])
     pst=[{"op":op,"arg":arg,"iter":0,"val":None} for op,arg in code]
     notes,_=realize(pst, mode="pent_minor", key=3, octave=0, variation=2)
-    write_midi(notes, "/home/claude/roundtrip.mid")
-    dec=decode_notes(read_midi("/home/claude/roundtrip.mid"))
+    write_midi(notes, midpath)
+    dec=decode_notes(read_midi(midpath))
     print("opcodes recovered from .mid exactly:", dec==code)
     print("output from decoded MIDI:", run(dec)[0])
     print("recovered Python from the MIDI file:", decompile(dec))
+    print("recovered MD from the MIDI file:", repr(decompile_md(dec)))
     print("\nALL PASS:", allok)
