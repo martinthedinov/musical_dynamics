@@ -31,18 +31,18 @@ Legend: ✅ shipped · 🔮 next/planned · 💡 idea · 🎯 maps to a numbered
 
 ## 3. Steganography 🎯#6
 
-- 🔮 **Fix the LSB channel** (the existing side feature): unify the interleave PRNG and channel
-  convention so Python- and JS-embedded WAVs are mutually decodable.
-- 💡 **Native "compositional" steganography** — the elegant one. The decoder is provably blind to
-  *variation, voicing, key, octave* (and, in performance mode, *mode/climb*). A single program has
-  hundreds–thousands of equivalent performances, so the **choice of performance carries a hidden
-  message** while the notes still decode to the identical program. No sample tampering at all.
-  - Per-instruction budget ≈ `log2(family_size × voicing_combos)` bits; a long program hides a
-    short message purely in *how it's voiced*.
-  - Decode: re-derive each instruction's chosen family-member/voicing index from the notes (the
-    same data the decoder already reads, just not *discarded*), concatenate to bytes, CRC-check.
-  - Bonus: completely lossless and inaudible-by-construction (it's "just a different arrangement"),
-    and survives transposition because the *relative* choice is what's read.
+- ✅ **Lossless audio (WAV/FLAC/AIFF)** carrier with fountain-coded redundancy, optional
+  AES-GCM, and a fail-safe verify-and-refuse decoder. (`stego/carriers/pcm.py`)
+- ✅ **MP3/AAC/Ogg watermark** via spread-spectrum DSSS in the mid-band of overlap-add STFT
+  frames. Survives *double* MP3 encoding generations. (`stego/carriers/mp3.py`)
+- ✅ **MIDI carrier**: hide bits in low bits of note-on velocities, n_lsb=2 is inaudible (max
+  velocity delta = 3) and gives ~750 B per 3000-note track. (`stego/carriers/midi.py`)
+- ✅ **MD-native compositional channel** — the elegant one. The decoder is provably blind to
+  *variation, voicing, key, octave* (and, in performance mode, *mode/climb*). The **choice of
+  performance** carries a hidden message while the notes still decode to the identical program.
+  No sample tampering at all. Per-program capacity ~10–20 bytes. (`stego/md_native.py`)
+- 🔮 **Browser mirror**: in-app file embed/extract for the lossless WAV path (shared
+  spec / mulberry32 PRNG is already cross-decodable).
 
 ## 4. Song → closest viable program 🎯#6
 

@@ -19,6 +19,11 @@ open_url() {
 echo "── Musical Dynamics · run ─────────────────────────────────"
 echo "• Reference self-tests (codec round-trips, MD language):"
 "$PY" mc_codec.py || echo "  (self-tests reported an issue — see above)"
+if "$PY" -c "import pytest" 2>/dev/null; then
+  echo
+  echo "• Stego test suite:"
+  "$PY" -m pytest tests/ -q 2>&1 | tail -3 || true
+fi
 
 # Prefer the modular web app (Vite) if it has been set up; else serve the single file.
 if command -v npm >/dev/null 2>&1 && [ -f web/package.json ]; then

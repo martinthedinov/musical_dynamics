@@ -40,16 +40,32 @@ Run `./setup.sh` (Linux/macOS/WSL/Git Bash) or `setup.bat` (Windows), or
 
 ### Hide files in music (`stego/`)
 
-Hide an **arbitrary file** inside any **WAV/FLAC/AIFF** (whether or not Musical Dynamics made
-it), with **fountain-coded redundancy** so it survives partial corruption/overwrite, optional
-**AES-GCM** encryption, and an inaudible ±1 LSB change:
+Hide an **arbitrary file** inside any music file, with **fountain-coded redundancy** so it
+survives partial corruption/overwrite, optional **AES-GCM** encryption, and a fail-safe
+verify-and-refuse decoder. Carriers:
+
+| Carrier | Method | Capacity (per minute of audio) | Survives lossy re-encode |
+|---|---|---|---|
+| **WAV/FLAC/AIFF** | LSB matching (±1) on samples | ~1.6 MB @ 1 bit-plane | n/a (bit-exact) |
+| **MP3/AAC/Ogg** | DSSS watermark in mid-band FFT | ~300 B | yes — verified through MP3+MP3 double-encode |
+| **MIDI**         | Low bits of note-on velocities | ~750 B @ 2 bits/note (3000-note track) | yes (re-export) |
+| **MD-native** | Variation/voicing bits the decoder *ignores* | ~10–20 B per program | yes — the music *is* the program |
 
 ```bash
 python -m stego embed song.flac secret.zip -o stego.flac --redundancy 4 --password hunter2
+python -m stego embed song.mp3  note.txt   -o stego.mp3
+python -m stego embed song.mid  msg.txt    -o stego.mid --n-lsb 2
 python -m stego extract stego.flac -o ./out --password hunter2
 python -m stego capacity song.wav
-python -m stego.selftest        # demonstrates recovery under scattered noise and large overwrites
+python -m stego.selftest                  # full demo: recovery under noise and large overwrites
 ```
 
-The pipeline is *fail-safe* (verify-and-refuse, never silent-wrong). MP3/AAC/Ogg watermarking,
-a MIDI channel, and the MD-native compositional channel are planned; lossless carriers work today.
+### Testing
+
+```bash
+./setup.sh && python -m pytest tests/     # 137 tests, ~70s
+```
+
+Test fixtures use public-domain text (US Constitution preamble, Shakespeare, Poe, Alice in
+Wonderland from Project Gutenberg) and synthesized audio. `tests/fetch_test_data.sh` downloads
+real Wikipedia articles when networked, for richer integration tests.

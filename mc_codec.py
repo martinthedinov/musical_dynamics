@@ -335,117 +335,162 @@ def decompile(toks):
 #         | 'if' '(' expr ')' '{' stmt* '}' ('elif' '(' expr ')' '{' stmt* '}')* ['else' '{' stmt* '}']
 #         | 'while' '(' expr ')' '{' stmt* '}'
 #         | 'for' '(' NAME 'in' 'range' '(' expr [',' expr] ')' ')' '{' stmt* '}'
-#   expr := ints, "strings", names, ( ) , unary -, and  + - * // %  <  >  <=  >=  ==  !=
+#   expr := ints, "strings", names, ( ) , unary -, 'not' expr,
+#           +  -  *  //  %  <  >  <=  >=  ==  !=  and  or
 #   comments := '#' to end of line, or '/* ... */'.  ('//' is floor-division, never a comment.)
-_MD_KW  = {"let", "if", "elif", "else", "while", "for", "in", "range", "print"}
+#
+# Errors carry line/column info so users see WHERE the problem is, not just what.
+# `and`/`or`/`not` desugar to existing opcodes (no new ops -> music round-trip guarantee preserved).
+class MDSyntaxError(SyntaxError):
+    def __init__(self, msg, line=0, col=0):
+        super().__init__("MD syntax error at line %d col %d: %s" % (line, col, msg))
+        self.line, self.col = line, col
+
+_MD_KW  = {"let", "if", "elif", "else", "while", "for", "in", "range", "print", "and", "or", "not"}
 _MD_OPS = ["//=", "//", "==", "!=", "<=", ">=", "+=", "-=", "*=", "%=",
            "=", "<", ">", "+", "-", "*", "%", "(", ")", "{", "}", ",", ";"]
 _MD_ESC = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", '"': '"', "'": "'"}
 
 def _md_lex(s):
-    i, n, out = 0, len(s), []
+    """Tokens are (kind, value, line, col) so error messages can point at the source location."""
+    i, n, out, line, col = 0, len(s), [], 1, 1
+    def adv(k):
+        nonlocal i, line, col
+        for _ in range(k):
+            if i < n and s[i] == "\n": line += 1; col = 1
+            else: col += 1
+            i += 1
     while i < n:
         c = s[i]
-        if c in " \t\r\n": i += 1; continue
+        if c in " \t\r\n": adv(1); continue
         if c == "#":
-            while i < n and s[i] != "\n": i += 1
+            while i < n and s[i] != "\n": adv(1)
             continue
         if c == "/" and i + 1 < n and s[i+1] == "*":
-            i += 2
-            while i + 1 < n and not (s[i] == "*" and s[i+1] == "/"): i += 1
-            i += 2; continue
+            adv(2)
+            while i + 1 < n and not (s[i] == "*" and s[i+1] == "/"): adv(1)
+            if i + 1 >= n: raise MDSyntaxError("unterminated /* ... */ comment", line, col)
+            adv(2); continue
+        tl, tc = line, col
         if c == '"' or c == "'":
-            q, j, buf = c, i + 1, []
-            while j < n and s[j] != q:
-                if s[j] == "\\" and j + 1 < n: buf.append(_MD_ESC.get(s[j+1], s[j+1])); j += 2
-                else: buf.append(s[j]); j += 1
-            if j >= n: raise ValueError("MD: unterminated string")
-            out.append(("str", "".join(buf))); i = j + 1; continue
+            q, buf = c, []
+            adv(1)
+            while i < n and s[i] != q:
+                if s[i] == "\\" and i + 1 < n:
+                    buf.append(_MD_ESC.get(s[i+1], s[i+1])); adv(2)
+                else:
+                    buf.append(s[i]); adv(1)
+            if i >= n: raise MDSyntaxError("unterminated string literal", tl, tc)
+            adv(1)
+            out.append(("str", "".join(buf), tl, tc)); continue
         if c.isdigit():
             j = i
             while j < n and s[j].isdigit(): j += 1
-            out.append(("num", int(s[i:j]))); i = j; continue
+            out.append(("num", int(s[i:j]), tl, tc)); adv(j - i); continue
         if c.isalpha() or c == "_":
             j = i
             while j < n and (s[j].isalnum() or s[j] == "_"): j += 1
-            w = s[i:j]; out.append(("kw" if w in _MD_KW else "name", w)); i = j; continue
+            w = s[i:j]; out.append(("kw" if w in _MD_KW else "name", w, tl, tc)); adv(j - i); continue
+        match = None
         for op in _MD_OPS:
-            if s.startswith(op, i): out.append(("op", op)); i += len(op); break
-        else: raise ValueError("MD: bad token near %r" % s[i:i+12])
+            if s.startswith(op, i): match = op; break
+        if match is None:
+            raise MDSyntaxError("unexpected character %r" % s[i], tl, tc)
+        out.append(("op", match, tl, tc)); adv(len(match))
     return out
 
-_MD_PREC = {"<":1,">":1,"<=":1,">=":1,"==":1,"!=":1,"+":2,"-":2,"*":3,"%":3,"//":3}
+# Operator precedence (higher number = tighter binding).
+#   or < and < comparisons < + - < * / %
+_MD_PREC = {"or": -2, "and": -1,
+            "<":1,">":1,"<=":1,">=":1,"==":1,"!=":1,
+            "+":2,"-":2,
+            "*":3,"%":3,"//":3}
 
 def _md_parse(toks):
-    """recursive-descent -> list of statement AST dicts (same shape the codegen below expects)."""
+    """recursive-descent -> list of statement AST dicts."""
     pos = [0]
     def peek(o=0):
         k = pos[0] + o
-        return toks[k] if k < len(toks) else ("eof", "")
+        return toks[k] if k < len(toks) else ("eof", "", 0, 0)
     def nxt(): t = peek(); pos[0] += 1; return t
-    def eat(val):
+    def err(msg, t=None):
+        t = t or peek()
+        raise MDSyntaxError(msg, t[2], t[3])
+    def eat(val, hint=None):
         t = nxt()
-        if t[1] != val: raise ValueError("MD: expected %r, got %r" % (val, t[1]))
+        if t[1] != val:
+            err("expected %r%s, got %r" % (val, " (%s)" % hint if hint else "", t[1]), t)
     def name():
         t = nxt()
-        if t[0] != "name": raise ValueError("MD: expected a name, got %r" % (t[1],))
+        if t[0] != "name": err("expected a variable name, got %r" % (t[1],), t)
         return t[1]
+    # logical/comparison/arithmetic atom: handles 'not', unary -, parens, literals, names
     def atom():
         t = nxt()
-        if t[0] == "num": return {"k": "num", "v": t[1]}
-        if t[0] == "str": return {"k": "str", "v": t[1]}
+        if t == ("kw", "not", t[2], t[3]) or (t[0] == "kw" and t[1] == "not"):
+            return {"k": "not", "e": atom()}
+        if t[0] == "num":  return {"k": "num", "v": t[1]}
+        if t[0] == "str":  return {"k": "str", "v": t[1]}
         if t[0] == "name": return {"k": "name", "v": t[1]}
-        if t == ("op", "("):
-            e = expr(0); eat(")"); return e
-        if t == ("op", "-"): return {"k": "neg", "e": atom()}
-        raise ValueError("MD: unexpected token %r" % (t[1],))
+        if t[0] == "op" and t[1] == "(":
+            e = expr(_MD_PREC["or"]); eat(")"); return e
+        if t[0] == "op" and t[1] == "-": return {"k": "neg", "e": atom()}
+        err("unexpected token %r" % (t[1],), t)
     def expr(minp):
         left = atom()
         while True:
             t = peek()
-            if t[0] == "op" and t[1] in _MD_PREC and _MD_PREC[t[1]] >= minp:
-                op = nxt()[1]; right = expr(_MD_PREC[op] + 1)
+            op = t[1] if t[0] in ("op", "kw") else None
+            if op in _MD_PREC and _MD_PREC[op] >= minp:
+                nxt(); right = expr(_MD_PREC[op] + 1)
                 left = {"k": "bin", "op": op, "l": left, "r": right}
             else: return left
-    def paren_expr(): eat("("); e = expr(0); eat(")"); return e
+    def paren_expr(): eat("("); e = expr(_MD_PREC["or"]); eat(")"); return e
     def block():
         eat("{"); body = []
-        while not (peek() == ("op", "}")):
-            if peek()[0] == "eof": raise ValueError("MD: unclosed '{'")
+        while not (peek()[0] == "op" and peek()[1] == "}"):
+            if peek()[0] == "eof": err("unclosed '{'")
             body.append(statement())
         eat("}"); return body
     def if_stmt():
         nxt()  # 'if' or 'elif'
         test = paren_expr(); body = block(); orelse = []
-        if peek() == ("kw", "elif"): orelse = [if_stmt()]
-        elif peek() == ("kw", "else"): nxt(); orelse = block()
+        if peek()[0] == "kw" and peek()[1] == "elif": orelse = [if_stmt()]
+        elif peek()[0] == "kw" and peek()[1] == "else": nxt(); orelse = block()
         return {"t": "if", "test": test, "body": body, "orelse": orelse}
     def for_stmt():
-        nxt(); eat("("); var = name()
-        if nxt() != ("kw", "in"):    raise ValueError("MD: for expects 'in'")
-        if nxt() != ("kw", "range"): raise ValueError("MD: for expects 'range(...)'")
-        eat("("); a = expr(0)
-        if peek() == ("op", ","): nxt(); start, stop = a, expr(0)
+        nxt(); eat("(")
+        var = name()
+        if nxt()[1] != "in":    err("for expects 'in'")
+        if nxt()[1] != "range": err("for expects 'range(...)'")
+        eat("("); a = expr(_MD_PREC["or"])
+        if peek()[0] == "op" and peek()[1] == ",":
+            nxt(); start, stop = a, expr(_MD_PREC["or"])
         else: start, stop = {"k": "num", "v": 0}, a
         eat(")"); eat(")")
         return {"t": "for", "var": var, "start": start, "stop": stop, "body": block()}
     def statement():
         t = peek()
-        if t == ("kw", "if"):    return if_stmt()
-        if t == ("kw", "for"):   return for_stmt()
-        if t == ("kw", "while"):
+        if t[0] == "kw" and t[1] == "if":    return if_stmt()
+        if t[0] == "kw" and t[1] == "for":   return for_stmt()
+        if t[0] == "kw" and t[1] == "while":
             nxt(); test = paren_expr(); return {"t": "while", "test": test, "body": block()}
-        if t == ("kw", "print"):
-            nxt(); eat("("); e = expr(0); eat(")"); eat(";"); return {"t": "print", "e": e}
-        if t == ("kw", "let"):
-            nxt(); nm = name(); eat("="); e = expr(0); eat(";"); return {"t": "assign", "name": nm, "e": e}
+        if t[0] == "kw" and t[1] == "print":
+            nxt(); eat("("); e = expr(_MD_PREC["or"]); eat(")"); eat(";", "missing ';'?")
+            return {"t": "print", "e": e}
+        if t[0] == "kw" and t[1] == "let":
+            nxt(); nm = name(); eat("="); e = expr(_MD_PREC["or"]); eat(";", "missing ';'?")
+            return {"t": "assign", "name": nm, "e": e}
         if t[0] == "name":
-            nm = nxt()[1]; op = nxt()
-            if op == ("op", "="): e = expr(0); eat(";"); return {"t": "assign", "name": nm, "e": e}
-            if op[0] == "op" and op[1] in ("+=", "-=", "*=", "//=", "%="):
-                e = expr(0); eat(";"); return {"t": "aug", "name": nm, "op": op[1][:-1], "e": e}
-            raise ValueError("MD: bad statement after %r (op %r)" % (nm, op[1]))
-        raise ValueError("MD: unexpected %r" % (t[1],))
+            nm = nxt()[1]; op_tok = nxt()
+            if op_tok[0] == "op" and op_tok[1] == "=":
+                e = expr(_MD_PREC["or"]); eat(";", "missing ';'?")
+                return {"t": "assign", "name": nm, "e": e}
+            if op_tok[0] == "op" and op_tok[1] in ("+=", "-=", "*=", "//=", "%="):
+                e = expr(_MD_PREC["or"]); eat(";", "missing ';'?")
+                return {"t": "aug", "name": nm, "op": op_tok[1][:-1], "e": e}
+            err("bad statement after %r (got %r)" % (nm, op_tok[1]), op_tok)
+        err("unexpected %r" % (t[1],), t)
     prog = []
     while peek()[0] != "eof": prog.append(statement())
     return prog
@@ -466,7 +511,28 @@ def compile_md(src):
             code.append(("MKSTR", len(e["v"])))
         elif e["k"] == "name": code.append(("LOAD", reg(e["v"])))
         elif e["k"] == "neg":  code.append(("PUSH", 0)); E(e["e"]); code.append(("SUB", None))
-        elif e["k"] == "bin":  E(e["l"]); E(e["r"]); code.append((BINOP_SYM.get(e["op"]) or CMPOP_SYM[e["op"]], None))
+        elif e["k"] == "not":  E(e["e"]); code.append(("PUSH", 0)); code.append(("EQ", None))
+        elif e["k"] == "bin":
+            op = e["op"]
+            if op == "and":
+                # short-circuit `a and b`: stash a in a fresh temp, then if a: push b else: push a
+                r = newtmp(); E(e["l"]); code.append(("STORE", r)); code.append(("LOAD", r))
+                code.append(("IF", None))
+                E(e["r"])
+                code.append(("ELSE", None))
+                code.append(("LOAD", r))
+                code.append(("END", None))
+            elif op == "or":
+                # short-circuit `a or b`: if a: push a else: push b
+                r = newtmp(); E(e["l"]); code.append(("STORE", r)); code.append(("LOAD", r))
+                code.append(("IF", None))
+                code.append(("LOAD", r))
+                code.append(("ELSE", None))
+                E(e["r"])
+                code.append(("END", None))
+            else:
+                E(e["l"]); E(e["r"])
+                code.append((BINOP_SYM.get(op) or CMPOP_SYM[op], None))
         else: raise ValueError("MD expr?")
     def B(ss):
         for s in ss: S(s)

@@ -42,7 +42,9 @@ class Fountain:
         self._cdf = _robust_soliton_cdf(self.K)
 
     def _rng(self, i):
-        # unique, reproducible stream per symbol ordinal i
+        # unique, reproducible stream per symbol ordinal i. Coerce to Python int so numpy
+        # callers don't silently overflow np.int64 before reaching _u32.
+        i = int(i)
         return mulberry32(_u32(_u32(self.seed * 2654435761) ^ _u32((i + 1) * 2246822519)))
 
     def indices(self, i):

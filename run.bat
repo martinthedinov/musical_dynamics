@@ -12,6 +12,12 @@ if "%PY%"=="" ( echo [X] Python not found. & exit /b 1 )
 echo == Musical Dynamics : run ==
 echo - Reference self-tests:
 %PY% mc_codec.py
+%PY% -c "import pytest" 2>nul
+if %errorlevel%==0 (
+  echo.
+  echo - Stego test suite:
+  %PY% -m pytest tests/ -q
+)
 
 where npm >nul 2>&1
 if %errorlevel%==0 if exist web\package.json (

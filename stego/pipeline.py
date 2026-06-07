@@ -66,7 +66,11 @@ def pack(payload, filename="payload.bin", password=None):
 
 def unpack(coded, flags, password=None):
     if flags & FLAG_AES:  coded = crypto.decrypt(coded, password)
-    if flags & FLAG_ZLIB: coded = zlib.decompress(coded)
+    if flags & FLAG_ZLIB:
+        try:
+            coded = zlib.decompress(coded)
+        except zlib.error as e:
+            raise PipelineError("decompression failed (payload corrupted): %s" % e)
     return _unframe(coded)
 
 # ---------- header ----------
@@ -181,7 +185,10 @@ def embed(carrier, payload, filename="payload.bin", password=None, block_size=DE
 
 def extract(carrier, password=None, n_lsb_candidates=(1, 2, 3, 4)):
     for n_lsb in n_lsb_candidates:
-        bits = carrier.get_bits(n_lsb)
+        try:
+            bits = carrier.get_bits(n_lsb)
+        except NotImplementedError:
+            continue                                  # carrier doesn't support this depth
         hdr = read_header(bits)
         if hdr is None or hdr["n_lsb"] != n_lsb:
             continue
