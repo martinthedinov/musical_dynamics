@@ -206,3 +206,82 @@ def extract_payload(notes, repetition=3, password=None):
         from . import crypto
         data = crypto.decrypt(data, password)
     return data
+
+
+# ---------- CLI:  python -m stego.md_native embed|extract|capacity ----------
+def _cli(argv=None):
+    import argparse, os, sys
+    ap = argparse.ArgumentParser(prog="python -m stego.md_native",
+        description="Hide files in the variation/voicing of an MD program's music "
+                    "(no audio tampering — the notes still decode to the same program).")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    e = sub.add_parser("embed", help="hide a payload in an MD program's variation channel")
+    e.add_argument("program", help="MD or Python source (.md / .py — auto-detect by extension)")
+    e.add_argument("payload", help="file to hide")
+    e.add_argument("-o", "--out", default="stego.mid", help="output MIDI (default: stego.mid)")
+    e.add_argument("--password", help="optional AES-GCM passphrase (adds ~48 bytes overhead)")
+    e.add_argument("--repetition", type=int, default=3,
+                   help="bit repetition for redundancy (3 = robust, 1 = max capacity)")
+    e.add_argument("--key", type=int, default=3)
+    e.add_argument("--mode", default="pent_minor")
+
+    x = sub.add_parser("extract", help="recover the payload from a stego MIDI")
+    x.add_argument("stego_mid", help="stego MIDI file produced by 'embed'")
+    x.add_argument("-o", "--out", default=".", help="output directory")
+    x.add_argument("--out-name", default="payload.bin",
+                   help="filename for the recovered file (native channel doesn't store the original name)")
+    x.add_argument("--password")
+    x.add_argument("--repetition", type=int, default=3)
+
+    c = sub.add_parser("capacity", help="report how many bytes fit in a program's variation channel")
+    c.add_argument("program")
+    c.add_argument("--repetition", type=int, default=3)
+
+    a = ap.parse_args(argv)
+    try:
+        if a.cmd in ("embed", "capacity"):
+            src = open(a.program).read()
+            code, _ = (mc.compile_python(src) if a.program.endswith(".py") else mc.compile_md(src))
+
+        if a.cmd == "capacity":
+            cap = capacity_bits(code)
+            head_bits = _HDR_BYTES * 8           # the slim 4-byte native header
+            usable = max(0, (cap // a.repetition) - head_bits)
+            print(f"variation capacity: {cap} bits (~{cap // 8} bytes raw)")
+            print(f"at {a.repetition}x repetition + 4B header, payload <= {usable // 8} bytes")
+            return 0
+
+        if a.cmd == "embed":
+            payload = open(a.payload, "rb").read()
+            notes, info = embed_payload(code, payload, repetition=a.repetition,
+                                        password=a.password, mode=a.mode, key=a.key)
+            mc.write_midi(notes, a.out)
+            print(f"hid {info['payload_bytes']} bytes ({info['framed_bytes']} framed) "
+                  f"in {len(code)} opcodes -> {a.out}")
+            print(f"  variation capacity: {info['capacity_bits']} bits, used: {info['used_bits']}, "
+                  f"slack: {info['slack_bits']}, repetition: {info['repetition']}x"
+                  + (", AES-GCM" if info['encrypted'] else ""))
+            print("  the produced MIDI still decodes to the original program (run it through "
+                  "mc_codec.decode_notes to verify)")
+            return 0
+
+        if a.cmd == "extract":
+            notes = mc.read_midi(a.stego_mid)
+            data = extract_payload(notes, repetition=a.repetition, password=a.password)
+            os.makedirs(a.out, exist_ok=True)
+            out_path = os.path.join(a.out, a.out_name)
+            with open(out_path, "wb") as f: f.write(data)
+            print(f"recovered {len(data)} bytes -> {out_path}")
+            return 0
+    except (NativeError, FileNotFoundError, ValueError) as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+    except Exception as err:
+        from .crypto import CryptoError
+        if isinstance(err, CryptoError):
+            print(f"error: {err}", file=sys.stderr); return 2
+        raise
+
+if __name__ == "__main__":
+    import sys; sys.exit(_cli())

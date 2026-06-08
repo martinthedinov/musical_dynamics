@@ -20,14 +20,16 @@ Two principles hold throughout:
 - **One performance → one meaning.** Any given set of notes decodes to exactly one result.
   The decoder is **deterministic** and is invariant to every compositional choice above.
 
-Everything runs in a single HTML file — **`musical_dynamics_v6.html`** — with no server or
-install. Open it in a browser.
+Two ways to run the player. The original zero-install demo is the single HTML file
+**`index.html`** — no server, no install, just double-click it. The redesigned Vite app lives
+in **`web/`** (`cd web && npm install && npm run dev` → http://localhost:5173) and adds a
+file-in-WAV stego UI and MIDI/MusicXML/WAV exports.
 
 ---
 
 ## 2. Quick start (the player)
 
-1. Open `musical_dynamics_v6.html`.
+1. Open `index.html` in a browser.
 2. Section **①** has a Python editor. Press **▶ run & play**. You'll hear the program and see
    its output.
 3. Try the **demo** dropdown: Fibonacci, Counter, FizzBuzz, Nested loops, Primes,
@@ -60,20 +62,60 @@ string literal is a little flurry of chords followed by a "make‑string" chord.
 strings uses the same `+` as integer addition (the VM concatenates when the operands are
 strings).
 
-### 3.2 Not supported (yet)
+### 3.2 Boolean operators (`and` / `or` / `not`)
 
-Functions/`def`, lists/dicts/tuples, `and`/`or`/`not`, floats, f‑strings, multiple `print`
-arguments, imports, comparison chaining (`a < b < c`). `for` desugars to a `while` with a
-counter, so decompiled code shows the `while` form.
+Supported in **both** the Python subset and MD. They **short‑circuit** and desugar to existing
+`IF`/`ELSE` opcodes (no new opcodes, so the music round-trip guarantee is preserved):
 
-### 3.3 Hello, World!
+```python
+if (x and y):     print(1)           # b is not evaluated when x is falsy
+if (x or  y):     print(1)
+if (not x):       print(1)
+if (a > 0 and a < 10): print(1)      # works with comparisons; precedence: not > and > or
+```
+
+### 3.3 Not supported (yet)
+
+Functions/`def`, lists/dicts/tuples, floats, f‑strings, multiple `print` arguments, imports,
+comparison chaining (`a < b < c`). `for` desugars to a `while` with a counter, so decompiled
+code shows the `while` form.
+
+### 3.4 The MD language — same opcodes, C/Python‑flavored surface
+
+`mc_codec.compile_md` parses a brace‑and‑semicolon surface that compiles to the **identical**
+opcodes as the Python compiler — so Python ↔ MD ↔ music are all conversions through the same
+IR. Errors carry line/column info via `MDSyntaxError`.
+
+```c
+// FizzBuzz, in MD
+for (i in range(1, 16)) {
+    if      (i % 15 == 0) { print("FizzBuzz"); }
+    elif    (i % 3  == 0) { print("Fizz");     }
+    elif    (i % 5  == 0) { print("Buzz");     }
+    else                  { print(i);          }
+}
+
+let x = 1;                                    // 'let' is optional; `x = 1;` also works
+let y = 0;
+if (x and y) { print(1); }                   // boolean and / or / not
+elif (not y) { print(0); }
+```
+
+Bridges through the IR are one call:
+
+```python
+mc_codec.python_to_md(src)   # Python source -> MD source (via opcodes)
+mc_codec.md_to_python(src)   # MD source -> Python source (via opcodes)
+```
+
+### 3.5 Hello, World!
 
 ```python
 print("Hello, World!")
 print("Musical " + "Dynamics")
 ```
 
-### 3.4 FizzBuzz with words
+### 3.6 FizzBuzz with words
 
 ```python
 for i in range(1, 16):
@@ -191,55 +233,134 @@ completable. Turn it off and anything goes; the panel then *reports* what's wron
 
 ---
 
-## 8. Steganography — hide data in the audio (section ⑤, **side feature**)
+## 8. Steganography — hide arbitrary files in music
 
-This is a separate utility, unrelated to the language core. It hides arbitrary bytes — a text
-message or a whole **JPEG** — inside an existing piece by toggling the **least‑significant bit**
-of 16‑bit audio samples. The change is about **−96 dBFS** (one part in 65,536): inaudible to a
-person, exactly recoverable by software.
+### 8.1 The full framework (`stego/` package)
 
-Robustness is layered:
+A general file-in-music steganography toolkit, separable from the language core. Hide
+**arbitrary files** (any bytes — text, JPEG, ZIP, an executable) inside any music file. Four
+carriers, all sharing one **format‑independent payload pipeline** so the redundancy and
+fail‑safe guarantees are uniform:
 
-- a fixed‑size, fixed‑redundancy **header** so the decoder bootstraps with no side channel;
-- the payload **repetition‑coded** and **pseudo‑randomly interleaved** across the carrier, so
-  bursts and periodic noise are spread over many copies (corrects up to ⌊R/2⌋ flips per bit);
-- a **CRC‑32** integrity check that detects any residual corruption and *refuses* rather than
-  returning silent‑wrong data.
+| Carrier | Capacity (per minute of audio) | Survives lossy re‑encode |
+|---|---|---|
+| WAV / FLAC / AIFF (LSB matching, ±1 sample) | ~1.6 MB at 1 bit-plane | n/a (bit‑exact) |
+| MP3 / AAC / Ogg (spread‑spectrum watermark in mid-band FFT) | ~300 B | **yes** — verified through MP3+MP3 double encode |
+| MIDI (low bits of note‑on velocities) | ~750 B at 2 bits/note (3000-note track) | yes (re-export) |
+| MD‑native (variation/voicing bits the decoder *ignores*) | ~10–20 B per program | yes — *the music **is** the program* |
 
-In the player: type a message, **hide → download .wav** (it self‑checks the decode before
-downloading), then re‑upload that file and **decode** it to read the message back.
+The pipeline is `frame(name+len+CRC) → optional zlib → optional AES‑256‑GCM → LT fountain
+code → per‑symbol Reed‑Solomon + CRC`. Header is replicated and spread across the whole
+carrier; body symbols are cell‑spread, so a localized overwrite erases a *proportional* set of
+whole symbols which the fountain rebuilds from any K′≈K survivors. Decode is fail‑safe — header
+CRC, per‑symbol CRC, and final payload CRC must all pass, or it **refuses** rather than
+returning corrupted bytes.
 
-For images and heavy testing, use the Python tool (below). The included `carrier_stego.wav`
-sounds like a four‑chord pad but contains a complete hidden JPEG.
+#### General CLI (WAV/FLAC/AIFF/MP3/AAC/Ogg/MIDI)
+
+```bash
+python3 -m stego embed   carrier.wav secret.zip -o stego.wav --redundancy 4 --password hunter2
+python3 -m stego extract stego.wav -o ./out --password hunter2
+python3 -m stego capacity carrier.wav
+```
+
+#### MD‑native CLI (no PCM tampering — the produced MIDI is just *a different arrangement*)
+
+```bash
+python3 -m stego.md_native embed   program.md secret.bin -o stego.mid [--password] [--repetition 3]
+python3 -m stego.md_native extract stego.mid  -o ./out                [--password] [--repetition 3]
+python3 -m stego.md_native capacity program.md
+```
+
+The native channel's headline guarantee: the produced MIDI **still decodes to the same program
+and runs to the same output**. The hidden bits ride entirely in the variation/voicing the
+decoder is provably blind to.
+
+#### Selftest demo
+
+```bash
+python3 -m stego.selftest
+```
+
+Shows WAV/FLAC bit‑exact round-trip, recovery under 0.5–2% scattered LSB noise, recovery under
+30/60/80% contiguous overwrite, AES‑GCM with wrong‑password rejection, and (with PyAV
+installed) MP3 single + double encode survival.
+
+#### Cross‑decodable with the browser
+
+The Python and JS implementations share one MDX1 wire format (same mulberry32 PRNG, same
+CRC‑16/CRC‑32, same fountain seeding). A stego WAV embedded by `python3 -m stego embed`
+extracts in the browser's "extract" panel (and vice versa). Verified by Node tests in both
+directions.
+
+### 8.2 The original LSB demo in the v6 player (section ⑤)
+
+`mc_stego.py` is the original side feature: text or a JPEG hidden in the LSB of 16‑bit
+samples, with a fixed‑R repetition + interleave + CRC scheme. The change is about **−96 dBFS**
+(one part in 65,536). Run `python3 mc_stego.py` for its demo (text + JPEG round-trip, error
+correction under random and burst corruption, on-disk WAV round-trip). The included
+`carrier_stego.wav` sounds like a four-chord pad but contains a complete hidden JPEG.
+
+Superseded by `stego/` for new work — but the API is still there for backwards compatibility.
 
 ---
 
-## 9. The Python reference tools
+## 9. The Python tools
 
-Two scripts implement and **test** the whole system outside the browser.
-
-### `mc_codec.py` — the language
-Compiler (Python‑subset → opcodes), the looping VM and the straight‑line trace VM, the
-deterministic realizer, the **decoder**, the **decompiler**, and MIDI read/write. Run it to see
-the full test suite — every demo round‑trips through encode → decode (across 12 renderings each)
-and through a real `.mid` file:
-
-```bash
-python mc_codec.py
-```
-
-### `mc_stego.py` — the steganography
-LSB embedding with the header/repetition/interleave/CRC scheme. Run it to embed a text message
-**and** a JPEG into a synthesized carrier, verify bit‑exact recovery, watch error‑correction
-under random and burst corruption, and round‑trip through a `.wav` on disk:
+### `mc_codec.py` — the language and music codec
+Both compilers (Python‑subset → opcodes, **MD → opcodes**), the looping VM and straight‑line
+trace VM, the deterministic realizer, the **decoder**, the **decompiler** (opcodes → Python or
+MD), the Python ↔ MD bridges (`python_to_md`, `md_to_python`), and MIDI read/write. Run it to
+exercise the full self-test — every demo round-trips through encode → decode (across many
+renderings each), through a real `.mid` file, through the MD language, and through the Python
+↔ MD bridge:
 
 ```bash
-python mc_stego.py
+python3 mc_codec.py
 ```
 
-**Dependencies:** Python 3, `numpy` (stego), `mido` (MIDI in the codec), `pillow` (the JPEG
-demo). Embed a payload programmatically with `mc_stego.embed_file(in_wav, out_wav, payload,
-ptype)` and read it back with `mc_stego.extract_file(out_wav)`.
+### `mc_song_to_md.py` — turn any MIDI into the closest valid MD program
+Clusters chords by onset, scores them by Jaccard distance over pitch-class sets to find the
+nearest opcode, then **beam-searches** through the validity engine (same `POPS`/`PUSHN` tables
+the visual composer uses) to repair the stream into a balanced, runnable MD program. Reports
+fidelity ∈ [0, 1].
+
+```bash
+python3 mc_song_to_md.py path/to/song.mid                 # prints MD + fidelity
+python3 mc_song_to_md.py path/to/song.mid --show-opcodes  # also dumps the opcode stream
+python3 mc_song_to_md.py path/to/song.mid -o out.md       # write to file
+```
+
+### `stego/` — file-in-music steganography
+See §8.1 above. CLIs: `python3 -m stego` (general carriers) and `python3 -m stego.md_native`
+(native channel).
+
+### `mc_stego.py` — the legacy LSB side feature
+See §8.2 above. `python3 mc_stego.py` runs its built-in demo.
+
+### The pytest suite
+140 tests across the codec, language, all four stego carriers, the native channel, and the
+song-to-MD prototype. Public-domain payload fixtures (US Constitution preamble, Shakespeare's
+Sonnet 18, Poe's "The Raven", *Alice in Wonderland* via Project Gutenberg). Run with:
+
+```bash
+python3 -m pytest tests/                   # 140 tests, ~70s
+cd web && npm test                          # 9 JS tests (incl. Python <-> JS cross-decode)
+```
+
+**Dependencies** (or just run `./setup.sh` / `setup.bat`):
+`numpy mido pillow soundfile cryptography reedsolo av pytest`. `av` (PyAV) is optional —
+without it, MP3/AAC/Ogg stego is disabled but everything else still works.
+
+### `web/` — the redesigned Vite app
+Browser player + **file-in-WAV stego UI** + MIDI / MusicXML / rendered WAV exports. Modular
+ES-module port of the codec under `web/src/codec/`; stego pipeline at `web/src/stego/`
+byte-compatible with Python. Run with:
+
+```bash
+cd web && npm install && npm run dev    # http://localhost:5173
+cd web && npm run build                  # static build to web/dist/ (for GitHub Pages)
+```
 
 ---
 
