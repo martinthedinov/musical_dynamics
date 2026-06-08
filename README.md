@@ -13,12 +13,17 @@ of notes decodes to exactly one result.
 
 ### What's here
 
-- **`index.html`** — the whole app. Open it in any browser; nothing to install.
+- **`index.html`** — the original single-file zero-install demo. Open in any browser.
+- **`web/`** — the redesigned Vite app: cleaner UI, MIDI/MusicXML/WAV exports, and a
+  **file-in-WAV stego UI** that's byte-compatible with the Python CLI (drop a WAV + any file,
+  hide it; or open a stego WAV and extract).
 - **`Musical_Dynamics_Guide.md`** — full user guide (language, encoding, decoder, visual programming, steganography).
 - **`mc_codec.py`** — reference implementation + test suite (compiler, VM, decoder, decompiler, **the MD language**, MIDI I/O). Run `python mc_codec.py`.
+- **`mc_song_to_md.py`** — turn an arbitrary MIDI song into the closest valid MD program (nearest-opcode + beam-search repair via the validity engine).
 - **`mc_stego.py`** — the original LSB audio-steganography side feature. Run `python mc_stego.py`.
-- **`stego/`** — a general file-in-music steganography package (arbitrary files, fountain-coded redundancy, optional AES-GCM, works on any WAV/FLAC/AIFF — MD-generated or not). Run `python -m stego.selftest`.
+- **`stego/`** — a general file-in-music steganography package (arbitrary files, fountain-coded redundancy, optional AES-GCM, works on any WAV/FLAC/AIFF/MP3/AAC/Ogg/MIDI — MD-generated or not). Run `python -m stego.selftest`.
 - **`setup.sh` / `setup.bat`, `run.sh` / `run.bat`** — cross-platform install and launch.
+- **`tests/`** — pytest suite (140 tests, ~70s).
 - **`IDEAS.md`** — directions for using/extending the MD language.
 - **`carrier_stego.wav`** — a chord pad with a JPEG hidden inside it.
 - **`roundtrip.mid`** — "Hello, World!" encoded as music.
@@ -60,10 +65,30 @@ python -m stego capacity song.wav
 python -m stego.selftest                  # full demo: recovery under noise and large overwrites
 ```
 
+### Web app (Vite — the redesign)
+
+```bash
+cd web && npm install && npm run dev    # http://localhost:5173
+```
+
+The new front-end has a clean player + file-in-WAV stego UI + **MIDI / MusicXML / WAV
+exports**. The stego format is byte-compatible with the Python CLI — files embedded by Python
+extract in the browser, and vice versa (cross-tested under Node).
+
+### Song → MD program
+
+```bash
+python mc_song_to_md.py path/to/song.mid   # prints the closest valid MD program + fidelity
+```
+
+Reads an arbitrary MIDI, finds the nearest opcode per chord by interval-set distance, and
+beam-searches the stream into a balanced, runnable MD program. Reports `fidelity ∈ [0,1]`.
+
 ### Testing
 
 ```bash
-./setup.sh && python -m pytest tests/     # 137 tests, ~70s
+./setup.sh && python -m pytest tests/     # 140 Python tests
+cd web && npm test                         # 9 JS tests (incl. Python <-> JS cross-decode)
 ```
 
 Test fixtures use public-domain text (US Constitution preamble, Shakespeare, Poe, Alice in

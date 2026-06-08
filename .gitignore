@@ -16,3 +16,9 @@ __pycache__/
 
 # Verification / agent scratch (transient, never committed)
 /_*
+
+# Node / Vite (web/)
+node_modules/
+web/dist/
+web/.vite/
+.pytest_cache/

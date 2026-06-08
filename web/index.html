@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Musical Dynamics · v7</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,400&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./src/ui/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>Musical <em>Dynamics</em></h1>
+      <p class="tag">v7 · program in music · hide files in music</p>
+      <p class="sub">
+        Write Python; it plays as chords. A decoder reconstructs the program from the notes.
+        Or hide an arbitrary file inside any WAV with fountain-coded redundancy — bytes the
+        Python CLI can also read.
+      </p>
+    </header>
+
+    <section class="panel">
+      <div class="label">① python source <button id="demo-btn" class="ghost">load demo ▾</button></div>
+      <textarea id="src" spellcheck="false" rows="10"></textarea>
+      <div class="row">
+        <button id="play" class="primary">▶ run &amp; play</button>
+        <button id="stop">■ stop</button>
+        <span class="spacer"></span>
+        <button id="export-mid">⤓ MIDI (.mid)</button>
+        <button id="export-xml">⤓ MusicXML</button>
+        <button id="export-wav">⤓ rendered WAV</button>
+      </div>
+      <div class="out" id="out">—</div>
+      <pre class="rec" id="recpy">decoded Python appears here after a run.</pre>
+    </section>
+
+    <section class="panel">
+      <div class="label">② realization · these only change the sound, never the decode</div>
+      <div class="params">
+        <label>mode <select id="mode">
+          <option>major</option><option>minor</option><option>dorian</option><option>phrygian</option>
+          <option>lydian</option><option>mixolydian</option><option>pent_major</option>
+          <option selected value="pent_minor">pent_minor</option><option>whole_tone</option></select></label>
+        <label>key <select id="key">
+          <option value="0">C</option><option value="2">D</option><option value="3">Eb</option>
+          <option value="5">F</option><option value="7">G</option><option value="9">A</option></select></label>
+        <label>octave <select id="octave">
+          <option value="-1">−1</option><option value="0" selected>0</option><option value="1">+1</option></select></label>
+        <label>tempo <input type="range" id="tempo" min="60" max="200" step="2" value="120"></label>
+        <label>variation <input type="number" id="variation" value="0" min="0" style="width:6em"></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="label">③ hide file in WAV · fountain-coded redundancy · cross-decodable with the Python CLI</div>
+      <p class="hint">
+        Pick a WAV/FLAC carrier and any file to hide; a stego WAV downloads. Open one to extract.
+        Plane-0 LSB matching keeps the audio bit-perceptually identical (max change ±1).
+      </p>
+      <div class="row" style="gap:18px;flex-wrap:wrap">
+        <fieldset class="card">
+          <legend>hide</legend>
+          <label>carrier (.wav) <input type="file" id="emb-carrier" accept=".wav"></label>
+          <label>payload (any file) <input type="file" id="emb-payload"></label>
+          <label>redundancy
+            <select id="emb-redundancy">
+              <option value="">fill (max)</option><option value="2">2×</option>
+              <option value="4" selected>4×</option><option value="8">8×</option>
+            </select>
+          </label>
+          <button id="emb-go" class="primary">embed → download .wav</button>
+        </fieldset>
+        <fieldset class="card">
+          <legend>extract</legend>
+          <label>stego (.wav) <input type="file" id="ext-file" accept=".wav"></label>
+          <button id="ext-go">extract</button>
+        </fieldset>
+      </div>
+      <pre class="stego-log" id="stego-log">stego status will appear here.</pre>
+    </section>
+
+    <footer class="foot">
+      <p>The original single-file demo lives at <a href="../index.html">../index.html</a> (no build step).
+         The Python CLI is <code>python -m stego embed|extract|capacity</code>.</p>
+    </footer>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

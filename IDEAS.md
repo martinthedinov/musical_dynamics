@@ -23,8 +23,9 @@ Legend: ✅ shipped · 🔮 next/planned · 💡 idea · 🎯 maps to a numbered
 
 ## 2. Output surfaces (read MD more ways) 🎯#3
 
-- 🔮 **Exporters**: MIDI (.mid), rendered **WAV**, and **MusicXML/score** — same notes, different
-  containers. Decoder is invariant, so every export round-trips back to the one program.
+- ✅ **Exporters**: MIDI (.mid), rendered **WAV** (offline Web Audio render), and
+  **MusicXML/score** — same notes, different containers. (`web/src/audio/midi.js`,
+  `web/src/audio/musicxml.js`, `web/src/audio/synth.js`)
 - 💡 **ABC / LilyPond** for engraved sheet music; **JSON note-list** for diffing/debugging.
 - 💡 **Step-debugger / teaching mode**: highlight the chord as each opcode executes; scrub the
   piano-roll and watch the stack/regs update. Great for "see the program *as* music."
@@ -41,25 +42,27 @@ Legend: ✅ shipped · 🔮 next/planned · 💡 idea · 🎯 maps to a numbered
   *variation, voicing, key, octave* (and, in performance mode, *mode/climb*). The **choice of
   performance** carries a hidden message while the notes still decode to the identical program.
   No sample tampering at all. Per-program capacity ~10–20 bytes. (`stego/md_native.py`)
-- 🔮 **Browser mirror**: in-app file embed/extract for the lossless WAV path (shared
-  spec / mulberry32 PRNG is already cross-decodable).
+- ✅ **Browser mirror**: in-app file embed/extract for the lossless WAV path. Same MDX1 wire
+  format as Python (mulberry32 PRNG, fountain code, CRC-16/CRC-32 all byte-identical). Verified
+  cross-decode in both directions under Node. (`web/src/stego/`)
 
 ## 4. Song → closest viable program 🎯#6
 
-Turn an existing piece into the nearest MD program it "almost is":
+✅ Shipped as `mc_song_to_md.py`. Turns an arbitrary MIDI into the nearest valid MD program:
 
-1. **Ingest** a MIDI (or pitch-tracked audio) → note events.
-2. **Cluster** by onset into chords; read **intervals above the bass** → nearest opcode by
-   minimum interval-set distance (Hamming/Jaccard over pitch-classes); read the fixed operand
-   register if present.
-3. **Repair to validity**: a raw nearest-opcode stream rarely type-checks, so run a small
-   **beam search** that keeps the stack non-negative and blocks balanced (reuse the existing
-   `simulate`/`legalNext` validity engine as the constraint), minimizing total chord-distance.
-4. **Emit** the resulting MD + a "fidelity" score (how far the song had to bend to become a
-   program). Play the *repaired* version back so you can hear the difference.
+1. Clusters MIDI events by onset into chords (filters MD's operand/bass channels when present).
+2. Maps each chord to its nearest opcode by Jaccard distance over pitch-class sets.
+3. Runs a small **beam search** that keeps the partial program valid (stack non-negative, blocks
+   balanced) — reusing the same validity engine the visual composer uses.
+4. Closes any open blocks with `END`s and emits MD source + fidelity score in [0,1].
 
-This makes the language a lens: any song has a closest computer program, and you can hear how
-close it was.
+Run on the MD-generated `roundtrip.mid` (Hello World), it recovers fidelity = 1.0 — meaning
+every chord matched a `QFAMILY` member exactly. Run on a random C-major progression, it
+matches at 1.0 too (chords look like opcode signatures) but produces no `print()` (the song
+didn't suggest any output): an honest "balanced but silent" program.
+
+The next step is making the song → program → music round-trip *listenable* — letting users
+hear how close their song was to being a program.
 
 ## 5. Search / generative uses
 
