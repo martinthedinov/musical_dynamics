@@ -45,20 +45,21 @@ class MIDICarrier(Carrier):
         # avoid clamping by keeping velocity in [n_lsb_max+1 .. 127] — but we only modify low bits,
         # and a velocity of 1 is the smallest legal "audible" value, so any v>=1 has room for n_lsb=4
 
+    # A note is usable iff its HIGH bits (velocity >> n_lsb) are non-zero, i.e. velocity >=
+    # 2**n_lsb. That guarantees the "usable" decision is invariant to the embedded low bits
+    # (high bits are preserved, and velocity stays >= 2**n_lsb > 0) — so the encoder and the
+    # decoder agree on exactly the same set of carrier notes. (A threshold based on the *full*
+    # velocity is unstable: an embedded bit can push a borderline velocity across it, desyncing
+    # the slot sets and corrupting extraction.)
     def num_slots(self, n_lsb):
-        # one bit per carrier note × n_lsb bit-planes; but if v<2^n_lsb-1, skip that note for safety
-        cnt = 0
-        for ti, mi in self._carriers:
-            v = self.mid.tracks[ti][mi].velocity
-            if v >= max(1, (1 << n_lsb) - 1):           # leave room so low-bits writes can't clobber
-                cnt += n_lsb
-        return cnt
+        thresh = 1 << n_lsb
+        return n_lsb * sum(1 for ti, mi in self._carriers
+                           if self.mid.tracks[ti][mi].velocity >= thresh)
 
     def _iter_safe(self, n_lsb):
-        thresh = max(1, (1 << n_lsb) - 1)
+        thresh = 1 << n_lsb
         for ti, mi in self._carriers:
-            v = self.mid.tracks[ti][mi].velocity
-            if v >= thresh:
+            if self.mid.tracks[ti][mi].velocity >= thresh:
                 yield ti, mi
 
     def get_bits(self, n_lsb=1):

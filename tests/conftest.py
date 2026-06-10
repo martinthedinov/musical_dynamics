@@ -82,11 +82,12 @@ def long_flac(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def long_mp3(tmp_path_factory):
-    """2-minute MP3 — enough capacity for a ~60-byte payload under DSSS watermark."""
+    """3-minute MP3 — generous capacity so the DSSS watermark has solid fountain redundancy
+       (a tiny AES payload then survives the occasional post-MP3 bit error deterministically)."""
     pyav = pytest.importorskip("av")
     from stego.carriers.mp3 import _encode, _LOSSY_EXTS
     p = tmp_path_factory.mktemp("audio") / "long.mp3"
-    stereo = _music_signal(120.0, seed=3)
+    stereo = _music_signal(180.0, seed=3)
     _encode(stereo, SR, str(p), _LOSSY_EXTS[".mp3"])
     return str(p)
 

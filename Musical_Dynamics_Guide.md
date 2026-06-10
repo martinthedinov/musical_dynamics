@@ -242,13 +242,15 @@ completable. Turn it off and anything goes; the panel then *reports* what's wron
 ### 8.1 The full framework (`stego/` package)
 
 A general file-in-music steganography toolkit, separable from the language core. Hide
-**arbitrary files** (any bytes — text, JPEG, ZIP, an executable) inside any music file. Four
+**arbitrary files** (any bytes — text, JPEG, ZIP, an executable) inside any music file. Several
 carriers, all sharing one **format‑independent payload pipeline** so the redundancy and
 fail‑safe guarantees are uniform:
 
 | Carrier | Capacity (per minute of audio) | Survives lossy re‑encode |
 |---|---|---|
-| WAV / FLAC / AIFF (LSB matching, ±1 sample) | ~1.6 MB at 1 bit-plane | n/a (bit‑exact) |
+| WAV / FLAC / AIFF — **uniform** (LSB matching, ±1 sample) | ~1.6 MB at 1 bit-plane | n/a (bit‑exact) |
+| WAV / FLAC / AIFF — **adaptive** (psychoacoustic per‑sample bit-allocation) | up to ~6 MB on loud audio (4× uniform), masked | n/a (bit‑exact) |
+| Speech WAV — **adaptive + voice-activity gate** | tracks the speech; silence left untouched | n/a (bit‑exact) |
 | MP3 / AAC / Ogg (spread‑spectrum watermark in mid-band FFT) | ~300 B | **yes** — verified through MP3+MP3 double encode |
 | MIDI (low bits of note‑on velocities) | ~750 B at 2 bits/note (3000-note track) | yes (re-export) |
 | MD‑native (variation/voicing bits the decoder *ignores*) | ~10–20 B per program | yes — *the music **is** the program* |
@@ -260,12 +262,26 @@ whole symbols which the fountain rebuilds from any K′≈K survivors. Decode is
 CRC, per‑symbol CRC, and final payload CRC must all pass, or it **refuses** rather than
 returning corrupted bytes.
 
+#### Adaptive (psychoacoustic) embedding — `--adaptive`
+
+Instead of a fixed bit-depth everywhere, the adaptive carrier allocates a **per‑sample bit-depth
+from the local signal energy**: loud passages hide up to 4 bits (masked by the signal), quiet
+ones hide fewer or none. The allocation is derived from the bits **at or above** the embedding
+boundary (which embedding never touches), so the decoder recomputes it blind — no side channel.
+Versus fixed 1‑LSB this gives **~4× the capacity** on loud audio, keeps the embedding noise
+provably below `local‑signal / 32` (masked, not a constant hiss), and — since the data is spread
+across bit-planes 0..k−1 — **survives LSB‑plane stripping** (zeroing the lowest plane loses only
+~25% of the slots; the fountain rebuilds the rest). The `speech` profile adds a **voice‑activity
+gate** so silence is left byte‑identical and the speech stays natural and intelligible.
+
 #### General CLI (WAV/FLAC/AIFF/MP3/AAC/Ogg/MIDI)
 
 ```bash
 python3 -m stego embed   carrier.wav secret.zip -o stego.wav --redundancy 4 --password hunter2
-python3 -m stego extract stego.wav -o ./out --password hunter2
-python3 -m stego capacity carrier.wav
+python3 -m stego embed   song.flac   secret.zip --adaptive                 # 4x capacity, masked
+python3 -m stego embed   voice.wav   note.txt   --adaptive --profile speech # speech-safe (skips silence)
+python3 -m stego extract stego.wav -o ./out --password hunter2             # auto-detects the method
+python3 -m stego capacity carrier.wav [--adaptive [--profile speech]]
 ```
 
 #### MD‑native CLI (no PCM tampering — the produced MIDI is just *a different arrangement*)

@@ -34,6 +34,13 @@ Legend: ✅ shipped · 🔮 next/planned · 💡 idea · 🎯 maps to a numbered
 
 - ✅ **Lossless audio (WAV/FLAC/AIFF)** carrier with fountain-coded redundancy, optional
   AES-GCM, and a fail-safe verify-and-refuse decoder. (`stego/carriers/pcm.py`)
+- ✅ **Adaptive psychoacoustic carrier** — per-sample bit-depth from the local signal energy
+  (derived from the embedding-invariant high bits, so the decoder reproduces it blind). ~4×
+  the capacity of fixed 1-LSB on loud audio, noise kept below `signal/32` (masked), and robust
+  to LSB-plane stripping (data spread across planes 0..k-1). A `speech` profile adds a
+  voice-activity gate so silence is untouched and speech stays natural. (`stego/carriers/adaptive.py`)
+  - 💡 next: frequency-domain masking (per-critical-band thresholds via FFT) for even higher
+    inaudible capacity; codec-robust speech watermarking (survive Opus/AMR) for VoIP carriers.
 - ✅ **MP3/AAC/Ogg watermark** via spread-spectrum DSSS in the mid-band of overlap-add STFT
   frames. Survives *double* MP3 encoding generations. (`stego/carriers/mp3.py`)
 - ✅ **MIDI carrier**: hide bits in low bits of note-on velocities, n_lsb=2 is inaudible (max

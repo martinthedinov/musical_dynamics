@@ -74,7 +74,9 @@ Python ↔ MD bridge: `mc_codec.python_to_md(src)`, `mc_codec.md_to_python(src)`
 
 | Carrier | Method | Capacity per minute | Survives re-encode | CLI |
 |---|---|---|---|---|
-| **WAV / FLAC / AIFF** | LSB matching (±1) on samples | ~1.6 MB @ 1 bit-plane | n/a (lossless) | `python3 -m stego` |
+| **WAV / FLAC / AIFF** (uniform) | LSB matching (±1) on samples | ~1.6 MB @ 1 bit-plane | n/a (lossless) | `python3 -m stego` |
+| **WAV / FLAC / AIFF** (adaptive) | **psychoacoustic per-sample bit-allocation** | up to ~6 MB on loud audio (4× uniform), masked | n/a (lossless) | `python3 -m stego --adaptive` |
+| **Speech WAV** (adaptive) | adaptive **+ voice-activity gate** (skips silence) | tracks the speech; silence untouched | n/a (lossless) | `python3 -m stego --adaptive --profile speech` |
 | **MP3 / AAC / Ogg** | DSSS watermark in mid-band FFT | ~300 B | yes — verified through double MP3 encode | `python3 -m stego` (small payloads only) |
 | **MIDI** | Low bits of note-on velocities | ~750 B at `--n-lsb 2` (3k-note track) | yes (re-export) | `python3 -m stego` |
 | **MD-native** | Variation/voicing bits the decoder *ignores* | ~10–20 B per program | yes — *the music **is** the program* | `python3 -m stego.md_native` |
@@ -82,9 +84,9 @@ Python ↔ MD bridge: `mc_codec.python_to_md(src)`, `mc_codec.md_to_python(src)`
 ### The general CLI
 
 ```bash
-python3 -m stego embed    <carrier> <payload> [-o OUT] [--password] [--redundancy R] [--n-lsb N]
+python3 -m stego embed    <carrier> <payload> [-o OUT] [--password] [--redundancy R] [--n-lsb N] [--adaptive [--profile music|speech]]
 python3 -m stego extract  <carrier> [-o DIR]  [--password]
-python3 -m stego capacity <carrier> [--n-lsb N]
+python3 -m stego capacity <carrier> [--n-lsb N] [--adaptive [--profile music|speech]]
 ```
 
 - `--redundancy` defaults to `fill` (use all spare capacity for error-correction; tolerates
@@ -94,6 +96,38 @@ python3 -m stego capacity <carrier> [--n-lsb N]
 - `--out` defaults to `<carrier>_stego.<ext>` for embed and `.` for extract.
 - All payloads are framed with their filename + CRC-32; recovery is fail-safe (refuses rather
   than returning corrupted bytes).
+- `extract` auto-detects whether a file was embedded uniformly or adaptively — you don't pass
+  `--adaptive` to extract.
+
+### Adaptive (psychoacoustic) embedding — pack more, hear less
+
+Instead of a fixed number of LSBs everywhere, `--adaptive` allocates **per-sample bit-depth from
+the local signal energy**: loud passages hide up to 4 bits (the signal masks the embedding
+noise), quiet/silent passages hide fewer or none. The allocation is computed from the *high*
+bits the embedding never touches, so the decoder reproduces it blind. Versus fixed 1-LSB this
+gives, on loud audio, **~4× the capacity**, the embedding noise stays provably below
+`local-signal / 32` (so it's masked rather than a constant hiss in quiet parts), and — because
+the data is spread across bit-planes 0..k-1 — it **survives LSB-plane stripping** (zeroing the
+lowest plane only loses ~25% of the slots; the fountain rebuilds the rest).
+
+```bash
+python3 -m stego embed song.flac secret.zip --adaptive                 # max capacity, inaudible
+python3 -m stego extract song_stego.flac -o ./out                       # auto-detected
+```
+
+### Hiding data in speech (without ruining it)
+
+`--profile speech` adds a **voice-activity gate** (no embedding in silence — that's where any
+perturbation would be audible) and a gentler masking margin, so the speech stays natural and
+intelligible. Works on any 16-bit speech WAV (8/16/44.1 kHz, mono or stereo):
+
+```bash
+python3 -m stego embed  voicemail.wav secret.txt --adaptive --profile speech -o voicemail_stego.wav
+python3 -m stego extract voicemail_stego.wav -o ./out
+```
+
+Silent gaps come out byte-identical; data rides only the energetic voiced/fricative regions
+where it's masked.
 
 ### The MD-native channel (no PCM tampering at all)
 
