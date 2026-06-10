@@ -205,10 +205,14 @@ octave, climb, tempo, feel, and variation.
 | **tempo** | playback speed |
 | **feel** | straight / swing / staccato / legato |
 | **melody map** | how each printed value maps to a pitch (ladder / compact / chromatic / pulse) — decorative; the real value is recovered by running, not by pitch |
-| **timbre** | oscillator flavor |
+| **sound style** | a full instrument-and-effects preset: Warm Keys, Crystalline, Chiptune, Cinematic, Jazz Club, Lo-fi, Music Box, Cathedral, Classic. Each gives every **construct category** (data / memory / math / control / i-o) its own voice — so you *hear* the program's structure — plus its own reverb / chorus / delay / filter and musical defaults (mode, feel, tempo, melody) that you can still override |
 | **variation** | deterministic choice of chord voicings (press **next** to step through) |
 
-None of these change the program's output or the decoder's result.
+None of these change the program's output or the decoder's result. The synth is a multi-voice
+engine (layered oscillators, ADSR, per-voice filter envelopes, convolution reverb + chorus +
+delay) but it only changes *how* each note sounds — the note set fed to the decoder is identical,
+verified across **1728 renderings** spanning every style's mode/feel/octave/variation (0 decode
+failures).
 
 ---
 

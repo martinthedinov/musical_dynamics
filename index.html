@@ -101,8 +101,18 @@
         <select id="feel"><option value="straight">straight</option><option value="swing">swing</option><option value="staccato">staccato</option><option value="legato">legato</option></select></div>
       <div class="field"><label>melody map (print)</label>
         <select id="melody"><option value="ladder">ladder</option><option value="compact">compact</option><option value="chromatic">chromatic</option><option value="pulse">pulse</option></select></div>
-      <div class="field"><label>timbre</label>
-        <select id="timbre"><option value="triangle">triangle</option><option value="sine">sine</option><option value="sawtooth">saw</option><option value="square">square</option></select></div>
+      <div class="field"><label>sound style <span class="hint" style="text-transform:none;letter-spacing:0">timbre per construct</span></label>
+        <select id="style">
+          <option value="warm" selected>Warm Keys</option>
+          <option value="crystal">Crystalline</option>
+          <option value="chip">Chiptune</option>
+          <option value="cinematic">Cinematic</option>
+          <option value="jazz">Jazz Club</option>
+          <option value="lofi">Lo-fi</option>
+          <option value="musicbox">Music Box</option>
+          <option value="organ">Cathedral</option>
+          <option value="classic">Classic (pure)</option>
+        </select></div>
       <div class="field"><label>variation (deterministic)</label>
         <div style="display:flex;gap:6px"><input type="number" id="variation" value="0" min="0" style="width:64px"><button id="reroll" style="padding:9px 12px">next</button></div></div>
     </div>
@@ -335,18 +345,149 @@ function legalNext(tokens){const s=simulate(tokens);if(s.bad)return new Set();co
 function runSafe(tokens){if(!tokens.length)return{ok:false,err:'empty'};
   const s=simulate(tokens);if(s.bad)return{ok:false,err:s.bad};if(s.open)return{ok:false,err:s.open+' unclosed block(s)'};
   try{return{ok:true,out:run(tokens).out};}catch(e){return{ok:false,err:''+e};}}
-// ============ audio ============
-let ac=null,master=null,delay=null,playing=false,TIMBRE='triangle';
-function initAudio(){ac=new(window.AudioContext||window.webkitAudioContext)();master=ac.createGain();master.gain.value=0.82;
-  const lp=ac.createBiquadFilter();lp.type="lowpass";lp.frequency.value=6500;master.connect(lp);lp.connect(ac.destination);
-  delay=ac.createDelay();delay.delayTime.value=0.28;const fb=ac.createGain();fb.gain.value=0.30;const wet=ac.createGain();wet.gain.value=0.26;delay.connect(fb);fb.connect(delay);delay.connect(wet);wet.connect(lp);}
+// ============ audio · rich multi-voice synth + dynamic style presets ============
+// Sound only: each note's pitch/onset/role (RN) is untouched, so the decoder is unaffected.
+// Each programming-construct CATEGORY gets its own instrument, so you can HEAR the structure.
+let ac=null,master=null,masterLP=null,comp=null,revConv=null,revWet=null,chIn=null,chWet=null,dly=null,dlyWet=null,playing=false;
+let STYLE='warm';
 const mtf=m=>440*Math.pow(2,(m-69)/12);
-function voice(n,t0){const a=ac.currentTime+t0+n.t,freq=mtf(n.p),g=ac.createGain();
-  if(n.role==='bass'){const o=ac.createOscillator();o.type="sine";o.frequency.value=freq;o.connect(g);g.connect(master);const pk=n.vel/127*0.16;
-    g.gain.setValueAtTime(0,a);g.gain.linearRampToValueAtTime(pk,a+0.02);g.gain.exponentialRampToValueAtTime(0.0001,a+n.d+0.1);o.start(a);o.stop(a+n.d+0.15);return;}
-  const lead=(n.role==='lead'||n.role==='operand');const o=ac.createOscillator();o.type=TIMBRE;o.frequency.value=freq;o.connect(g);g.connect(master);if(lead)g.connect(delay);
-  const pk=n.vel/127*(lead?0.15:0.07);g.gain.setValueAtTime(0,a);g.gain.linearRampToValueAtTime(pk,a+(lead?0.006:0.05));
-  if(!lead)g.gain.setValueAtTime(pk,a+n.d*0.6);g.gain.exponentialRampToValueAtTime(0.0001,a+n.d+(lead?0.1:0.15));o.start(a);o.stop(a+n.d+0.2);}
+// the realizer tags each note with a color; map it to a construct category
+const CATOF={'--maj':'data','--min':'mem','--op':'math','--ctrl':'ctrl','--acc':'operand','--lead':'lead'};
+// instrument: osc=[[wave,detuneCents,octaveOffset,weight]...], a/d/s/r ADSR (s=sustain 0..1),
+//             lp=filter Hz, q, gain=peak, send={rev,cho,dly}
+const I=o=>Object.assign({osc:[['triangle',0,0,1]],a:.01,d:.12,s:.7,r:.18,lp:5000,q:.8,gain:.09,send:{rev:.25,cho:0,dly:0}},o);
+const STYLES={
+  warm:{label:'Warm Keys',mode:'pent_minor',feel:'straight',tempo:118,melody:'ladder',rev:.32,cho:.18,dly:.16,lp:6200,pal:{
+    data:I({osc:[['triangle',-5,0,.6],['triangle',6,0,.6]],a:.005,d:.18,s:.5,r:.22,lp:3200,gain:.085,send:{rev:.3,cho:.25}}),
+    mem :I({osc:[['sine',0,0,1],['sine',3,1,.25]],a:.008,d:.2,s:.55,r:.24,lp:2600,gain:.08,send:{rev:.3}}),
+    math:I({osc:[['sawtooth',-7,0,.4],['sawtooth',7,0,.4]],a:.004,d:.13,s:.42,r:.16,lp:2500,gain:.058,send:{rev:.2,cho:.2}}),
+    ctrl:I({osc:[['triangle',0,0,.7],['sine',0,1,.4]],a:.02,d:.26,s:.6,r:.34,lp:2900,gain:.072,send:{rev:.5,cho:.3}}),
+    lead:I({osc:[['triangle',0,0,.8],['sawtooth',0,0,.2]],a:.006,d:.1,s:.7,r:.22,lp:5200,gain:.135,send:{rev:.3,dly:.42}}),
+    operand:I({osc:[['triangle',0,1,1]],a:.004,d:.08,s:.35,r:.12,lp:6000,gain:.09,send:{rev:.2,dly:.2}}),
+    bass:I({osc:[['sine',0,-1,1],['triangle',0,0,.25]],a:.01,d:.16,s:.6,r:.2,lp:850,gain:.16,send:{rev:.1}}),
+  }},
+  crystal:{label:'Crystalline',mode:'lydian',feel:'legato',tempo:96,melody:'ladder',rev:.55,cho:.3,dly:.3,lp:9000,pal:{
+    data:I({osc:[['sine',0,1,.8],['sine',0,2,.25]],a:.002,d:.5,s:.15,r:.5,lp:7000,gain:.075,send:{rev:.6,dly:.3}}),
+    mem :I({osc:[['sine',0,1,.7],['triangle',0,2,.2]],a:.003,d:.6,s:.1,r:.5,lp:6000,gain:.07,send:{rev:.6}}),
+    math:I({osc:[['triangle',0,1,.7],['sine',0,2,.3]],a:.002,d:.4,s:.12,r:.4,lp:6500,gain:.06,send:{rev:.5,cho:.3}}),
+    ctrl:I({osc:[['sine',0,0,.6],['sine',2,1,.5]],a:.04,d:.8,s:.4,r:.9,lp:5000,gain:.07,send:{rev:.7,cho:.4}}),
+    lead:I({osc:[['sine',0,1,.9],['sine',0,2,.35]],a:.003,d:.3,s:.3,r:.6,lp:9000,gain:.12,send:{rev:.6,dly:.5}}),
+    operand:I({osc:[['sine',0,2,1]],a:.002,d:.25,s:.1,r:.3,lp:9000,gain:.08,send:{rev:.5,dly:.4}}),
+    bass:I({osc:[['sine',0,-1,1]],a:.01,d:.3,s:.5,r:.4,lp:1100,gain:.14,send:{rev:.3}}),
+  }},
+  chip:{label:'Chiptune',mode:'major',feel:'staccato',tempo:150,melody:'compact',rev:.08,cho:0,dly:.1,lp:9000,pal:{
+    data:I({osc:[['square',0,0,1]],a:.001,d:.05,s:.55,r:.04,lp:8000,gain:.06,send:{rev:.06}}),
+    mem :I({osc:[['square',0,1,1]],a:.001,d:.04,s:.5,r:.04,lp:8000,gain:.055,send:{rev:.06}}),
+    math:I({osc:[['sawtooth',0,0,1]],a:.001,d:.05,s:.45,r:.04,lp:8000,gain:.05,send:{rev:.05}}),
+    ctrl:I({osc:[['square',0,0,.8],['square',0,1,.4]],a:.001,d:.08,s:.5,r:.06,lp:7000,gain:.06,send:{rev:.1}}),
+    lead:I({osc:[['square',0,0,1]],a:.001,d:.04,s:.7,r:.05,lp:9000,gain:.12,send:{dly:.3}}),
+    operand:I({osc:[['square',0,1,1]],a:.001,d:.03,s:.4,r:.03,lp:9000,gain:.085,send:{dly:.2}}),
+    bass:I({osc:[['triangle',0,-1,1]],a:.001,d:.06,s:.7,r:.05,lp:1400,gain:.18,send:{}}),
+  }},
+  cinematic:{label:'Cinematic',mode:'minor',feel:'legato',tempo:82,melody:'ladder',rev:.6,cho:.25,dly:.2,lp:5200,pal:{
+    data:I({osc:[['sawtooth',-9,0,.5],['sawtooth',9,0,.5]],a:.06,d:.6,s:.6,r:.8,lp:2200,gain:.07,send:{rev:.6,cho:.3}}),
+    mem :I({osc:[['sawtooth',-6,0,.5],['triangle',0,1,.3]],a:.07,d:.6,s:.6,r:.8,lp:2000,gain:.066,send:{rev:.6}}),
+    math:I({osc:[['sawtooth',-11,0,.5],['sawtooth',11,0,.5]],a:.05,d:.5,s:.55,r:.7,lp:2400,gain:.05,send:{rev:.5,cho:.35}}),
+    ctrl:I({osc:[['sawtooth',0,0,.6],['sawtooth',0,1,.4]],a:.1,d:.9,s:.65,r:1.1,lp:2600,gain:.07,send:{rev:.75,cho:.4}}),
+    lead:I({osc:[['sawtooth',-4,0,.7],['sawtooth',5,0,.5]],a:.02,d:.4,s:.7,r:.6,lp:4200,gain:.12,send:{rev:.6,dly:.4}}),
+    operand:I({osc:[['triangle',0,1,1]],a:.01,d:.2,s:.4,r:.3,lp:5000,gain:.08,send:{rev:.4,dly:.3}}),
+    bass:I({osc:[['sine',0,-1,1],['sawtooth',-6,0,.18]],a:.02,d:.4,s:.7,r:.6,lp:700,gain:.2,send:{rev:.3}}),
+  }},
+  jazz:{label:'Jazz Club',mode:'mixolydian',feel:'swing',tempo:124,melody:'compact',rev:.26,cho:.22,dly:.12,lp:5200,pal:{
+    data:I({osc:[['sine',0,0,.8],['triangle',0,0,.4]],a:.004,d:.22,s:.45,r:.28,lp:3000,gain:.082,send:{rev:.28,cho:.25}}),
+    mem :I({osc:[['sine',0,0,.9],['sine',0,1,.3]],a:.005,d:.24,s:.5,r:.3,lp:2700,gain:.078,send:{rev:.28}}),
+    math:I({osc:[['triangle',-5,0,.6],['triangle',6,0,.5]],a:.004,d:.18,s:.4,r:.22,lp:2600,gain:.058,send:{rev:.2,cho:.3}}),
+    ctrl:I({osc:[['sine',0,0,.7],['triangle',0,1,.45]],a:.01,d:.3,s:.55,r:.4,lp:2800,gain:.07,send:{rev:.4,cho:.35}}),
+    lead:I({osc:[['triangle',0,0,.85],['sine',0,1,.3]],a:.005,d:.14,s:.6,r:.26,lp:4600,gain:.13,send:{rev:.3,dly:.35}}),
+    operand:I({osc:[['triangle',0,1,1]],a:.004,d:.1,s:.4,r:.16,lp:5200,gain:.088,send:{rev:.2,dly:.22}}),
+    bass:I({osc:[['sine',0,-1,1],['triangle',0,-1,.4]],a:.008,d:.18,s:.55,r:.22,lp:900,gain:.18,send:{rev:.12}}),
+  }},
+  lofi:{label:'Lo-fi',mode:'dorian',feel:'swing',tempo:88,melody:'ladder',rev:.3,cho:.4,dly:.22,lp:2600,pal:{
+    data:I({osc:[['triangle',-12,0,.6],['sine',9,0,.5]],a:.01,d:.3,s:.4,r:.3,lp:1800,gain:.085,send:{rev:.35,cho:.5}}),
+    mem :I({osc:[['triangle',-9,0,.7],['sine',0,1,.25]],a:.01,d:.32,s:.42,r:.3,lp:1600,gain:.08,send:{rev:.35,cho:.4}}),
+    math:I({osc:[['sawtooth',-14,0,.4],['triangle',10,0,.4]],a:.008,d:.24,s:.36,r:.24,lp:1500,gain:.056,send:{rev:.3,cho:.5}}),
+    ctrl:I({osc:[['triangle',-6,0,.7],['sine',6,1,.4]],a:.02,d:.4,s:.5,r:.4,lp:1700,gain:.072,send:{rev:.45,cho:.55}}),
+    lead:I({osc:[['triangle',-8,0,.8],['triangle',8,0,.4]],a:.008,d:.2,s:.55,r:.3,lp:2400,gain:.12,send:{rev:.35,dly:.4}}),
+    operand:I({osc:[['triangle',6,1,1]],a:.006,d:.14,s:.4,r:.18,lp:2600,gain:.085,send:{rev:.3,dly:.3}}),
+    bass:I({osc:[['sine',0,-1,1],['triangle',-12,0,.3]],a:.012,d:.22,s:.6,r:.26,lp:700,gain:.17,send:{rev:.15}}),
+  }},
+  musicbox:{label:'Music Box',mode:'major',feel:'staccato',tempo:128,melody:'ladder',rev:.42,cho:.15,dly:.24,lp:9000,pal:{
+    data:I({osc:[['sine',0,1,.8],['triangle',0,2,.3]],a:.001,d:.3,s:.02,r:.35,lp:7000,gain:.08,send:{rev:.45,dly:.25}}),
+    mem :I({osc:[['sine',0,1,.8],['sine',0,2,.25]],a:.001,d:.34,s:.02,r:.38,lp:6500,gain:.075,send:{rev:.45}}),
+    math:I({osc:[['triangle',0,1,.7],['sine',0,2,.3]],a:.001,d:.26,s:.02,r:.3,lp:6500,gain:.06,send:{rev:.4,cho:.2}}),
+    ctrl:I({osc:[['sine',0,1,.7],['sine',0,2,.4]],a:.002,d:.4,s:.04,r:.5,lp:6000,gain:.07,send:{rev:.55,cho:.25}}),
+    lead:I({osc:[['sine',0,1,.9],['triangle',0,2,.4]],a:.001,d:.3,s:.05,r:.45,lp:9000,gain:.12,send:{rev:.45,dly:.4}}),
+    operand:I({osc:[['sine',0,2,1]],a:.001,d:.2,s:.02,r:.28,lp:9000,gain:.085,send:{rev:.4,dly:.3}}),
+    bass:I({osc:[['sine',0,0,1]],a:.002,d:.3,s:.1,r:.35,lp:1200,gain:.13,send:{rev:.25}}),
+  }},
+  organ:{label:'Cathedral',mode:'phrygian',feel:'legato',tempo:92,melody:'compact',rev:.7,cho:.2,dly:.12,lp:5000,pal:{
+    data:I({osc:[['sine',0,0,.7],['sine',0,1,.5],['sine',0,2,.25]],a:.03,d:.1,s:.85,r:.4,lp:3200,gain:.07,send:{rev:.7}}),
+    mem :I({osc:[['sine',0,0,.7],['sine',0,1,.45],['triangle',0,2,.2]],a:.03,d:.1,s:.85,r:.4,lp:3000,gain:.068,send:{rev:.7}}),
+    math:I({osc:[['sine',0,0,.6],['sine',0,1,.5],['sine',2,2,.3]],a:.02,d:.1,s:.8,r:.35,lp:3000,gain:.052,send:{rev:.6,cho:.25}}),
+    ctrl:I({osc:[['sine',0,0,.7],['sine',0,1,.55],['sine',0,2,.35]],a:.05,d:.15,s:.85,r:.6,lp:3200,gain:.07,send:{rev:.8,cho:.3}}),
+    lead:I({osc:[['sine',0,0,.8],['sine',0,1,.5],['triangle',0,2,.25]],a:.02,d:.1,s:.85,r:.4,lp:5000,gain:.115,send:{rev:.7,dly:.3}}),
+    operand:I({osc:[['sine',0,1,.8],['sine',0,2,.4]],a:.02,d:.1,s:.8,r:.3,lp:5000,gain:.08,send:{rev:.6,dly:.2}}),
+    bass:I({osc:[['sine',0,-1,1],['sine',0,0,.4]],a:.03,d:.12,s:.85,r:.45,lp:800,gain:.17,send:{rev:.4}}),
+  }},
+  classic:{label:'Classic (pure)',mode:null,feel:null,tempo:null,melody:null,rev:.16,cho:0,dly:.14,lp:6500,pal:{
+    data:I({osc:[['triangle',0,0,1]],a:.05,d:.1,s:.85,r:.16,lp:6000,gain:.07,send:{rev:.18}}),
+    mem :I({osc:[['triangle',0,0,1]],a:.05,d:.1,s:.85,r:.16,lp:6000,gain:.07,send:{rev:.18}}),
+    math:I({osc:[['triangle',0,0,1]],a:.05,d:.1,s:.85,r:.16,lp:6000,gain:.07,send:{rev:.18}}),
+    ctrl:I({osc:[['triangle',0,0,1]],a:.05,d:.1,s:.85,r:.16,lp:6000,gain:.07,send:{rev:.18}}),
+    lead:I({osc:[['triangle',0,0,1]],a:.006,d:.05,s:.8,r:.1,lp:8000,gain:.15,send:{dly:.5}}),
+    operand:I({osc:[['triangle',0,0,1]],a:.006,d:.05,s:.8,r:.1,lp:8000,gain:.15,send:{dly:.5}}),
+    bass:I({osc:[['sine',0,0,1]],a:.02,d:.1,s:.7,r:.12,lp:1200,gain:.16,send:{}}),
+  }},
+};
+function makeIR(sec,decay){const rate=ac.sampleRate,len=Math.max(1,rate*sec|0),b=ac.createBuffer(2,len,rate);
+  for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,decay);}return b;}
+function applyStyleFX(){if(!ac)return;const s=STYLES[STYLE]||STYLES.warm;
+  revWet.gain.value=s.rev;chWet.gain.value=s.cho;dlyWet.gain.value=s.dly;masterLP.frequency.value=s.lp;}
+function initAudio(){ac=new(window.AudioContext||window.webkitAudioContext)();
+  master=ac.createGain();master.gain.value=0.6;
+  masterLP=ac.createBiquadFilter();masterLP.type='lowpass';masterLP.frequency.value=6500;
+  comp=ac.createDynamicsCompressor();comp.threshold.value=-16;comp.ratio.value=3;comp.attack.value=.005;comp.release.value=.25;
+  master.connect(masterLP);masterLP.connect(comp);comp.connect(ac.destination);
+  revConv=ac.createConvolver();revConv.buffer=makeIR(2.6,2.4);revWet=ac.createGain();revWet.gain.value=.3;revConv.connect(revWet);revWet.connect(comp);
+  chIn=ac.createGain();const chD=ac.createDelay();chD.delayTime.value=.025;
+  const lfo=ac.createOscillator();lfo.frequency.value=.55;const lfoG=ac.createGain();lfoG.gain.value=.007;lfo.connect(lfoG);lfoG.connect(chD.delayTime);lfo.start();
+  chIn.connect(chD);chWet=ac.createGain();chWet.gain.value=.18;chD.connect(chWet);chWet.connect(masterLP);
+  dly=ac.createDelay();dly.delayTime.value=.28;const fb=ac.createGain();fb.gain.value=.32;dly.connect(fb);fb.connect(dly);
+  dlyWet=ac.createGain();dlyWet.gain.value=.2;dly.connect(dlyWet);dlyWet.connect(masterLP);
+  applyStyleFX();}
+function instFor(n,pal){
+  if(n.role==='bass')return pal.bass;
+  if(n.role==='operand')return pal.operand||pal.lead;
+  if(n.role==='lead')return pal.lead;
+  return pal[CATOF[n.col]||'data']||pal.data;}        // pad: instrument by construct category
+function voice(n,t0){
+  const pal=(STYLES[STYLE]||STYLES.warm).pal, inst=instFor(n,pal);
+  const a=ac.currentTime+t0+n.t, peak=Math.max(.0008,inst.gain*(n.vel/110));
+  const A=inst.a,D=inst.d,S=Math.max(.001,inst.s),R=inst.r, hold=a+Math.max(A+D,n.d), sus=peak*S;
+  const vg=ac.createGain();
+  vg.gain.setValueAtTime(0,a);
+  vg.gain.linearRampToValueAtTime(peak,a+A);
+  vg.gain.linearRampToValueAtTime(sus,a+A+D);
+  vg.gain.setValueAtTime(sus,hold);
+  vg.gain.exponentialRampToValueAtTime(.0001,hold+R);
+  const f=ac.createBiquadFilter();f.type='lowpass';f.Q.value=inst.q;
+  f.frequency.setValueAtTime(Math.min(13000,inst.lp*1.7),a);
+  f.frequency.exponentialRampToValueAtTime(Math.max(180,inst.lp),a+A+D);
+  vg.connect(f);
+  const stop=hold+R+.05;
+  for(const[wave,det,oct,w]of inst.osc){const o=ac.createOscillator();o.type=wave;o.frequency.value=mtf(n.p+12*oct);o.detune.value=det;
+    const og=ac.createGain();og.gain.value=w;o.connect(og);og.connect(vg);o.start(a);o.stop(stop);}
+  f.connect(master);                                    // dry
+  const sd=inst.send||{};
+  if(sd.rev&&revConv){const g=ac.createGain();g.gain.value=sd.rev;f.connect(g);g.connect(revConv);}
+  if(sd.cho&&chIn){const g=ac.createGain();g.gain.value=sd.cho;f.connect(g);g.connect(chIn);}
+  if(sd.dly&&dly){const g=ac.createGain();g.gain.value=sd.dly;f.connect(g);g.connect(dly);}}
+function setStyle(name,replay){
+  STYLE=name; const s=STYLES[name]||STYLES.warm;
+  // a style is a "vibe": nudge the musical defaults too (all decode-invariant), user can still tweak
+  if(s.mode){$('mode').value=s.mode;} if(s.feel){$('feel').value=s.feel;}
+  if(s.tempo){$('tempo').value=s.tempo;} if(s.melody){$('melody').value=s.melody;}
+  applyStyleFX(); compile(); if(replay)play();}
 // ============ stego (side feature): hide bytes in audio LSBs ============
 const CRCT=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})();
 function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRCT[(c^u8[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
@@ -451,7 +592,7 @@ function params(){return{mode:$('mode').value,key:+$('key').value,octave:+$('oct
   tempo:120/+$('tempo').value,feel:$('feel').value,melody:$('melody').value,variation:Math.max(0,+$('variation').value|0)};}
 function arrEq(a,b){return a.length===b.length&&a.every((x,i)=>x[0]===b[i][0]&&x[1]===b[i][1]);}
 function compile(){
-  $('climbV').textContent=`+${$('climb').value}°`;$('tempoV').textContent=`${$('tempo').value} bpm`;TIMBRE=$('timbre').value;
+  $('climbV').textContent=`+${$('climb').value}°`;$('tempoV').textContent=`${$('tempo').value} bpm`;STYLE=$('style').value;applyStyleFX();
   const emode=$('emode').value;
   let code,regs,r;
   try{({code,regs}=compilePython($('src').value));r=run(code);}
@@ -485,13 +626,14 @@ function compile(){
   $('why').innerHTML=`Mode <em>${P.mode}</em> picks the pitch alphabet; <em>variation ${P.variation}</em> deterministically chooses each opcode's chord (from its family) and voicing; `+
     (emode==='score'?`in <em>score</em> mode loops play once so the music maps cleanly back to your source.`:`in <em>performance</em> mode the loop body repeats and climbs <em>+${$('climb').value}°</em> per pass — decoding then recovers the execution, and replaying it reproduces the output.`);
   sizeCanvas();draw(null);return real;}
-async function play(){if(!ac)initAudio();await ac.resume();TIMBRE=$('timbre').value;const real=compile();if(!real)return;
+async function play(){if(!ac)initAudio();await ac.resume();STYLE=$('style').value;applyStyleFX();const real=compile();if(!real)return;
   playing=true;const t0=ac.currentTime;for(const n of RN)voice(n,0);
   (function anim(){if(!playing)return;const ph=ac.currentTime-t0;draw(ph);if(ph<RT+0.3)requestAnimationFrame(anim);else playing=false;})();}
 $('play').onclick=play;$('stop').onclick=()=>{playing=false;if(ac){ac.close();ac=null;}};
 $('reroll').onclick=()=>{$('variation').value=(+$('variation').value|0)+1;compile();};
 $('demo').onchange=e=>{$('src').value=DEMOS[e.target.value];compile();};
-['emode','mode','key','octave','climb','tempo','feel','melody','timbre','variation'].forEach(id=>$(id).addEventListener('input',compile));
+['emode','mode','key','octave','climb','tempo','feel','melody','variation'].forEach(id=>$(id).addEventListener('input',compile));
+$('style').addEventListener('change',e=>setStyle(e.target.value,false));
 $('src').addEventListener('input',()=>{clearTimeout(window._t);window._t=setTimeout(compile,300);});
 $('src').value=DEMOS.fibonacci;window.addEventListener('resize',()=>{sizeCanvas();draw(null);});compile();
 
@@ -512,7 +654,7 @@ function refreshPalette(){const constrain=$('constrain').checked;const legal=con
   document.querySelectorAll('#palette button').forEach(b=>{const ok=!constrain||legal.has(b.dataset.op);b.disabled=!ok;b.style.opacity=ok?'1':'.25';b.style.cursor=ok?'pointer':'not-allowed';});}
 function addOp(op){if($('constrain').checked&&!legalNext(composed).has(op))return;
   const arg=HAS_ARG.has(op)?(parseInt($('operand').value)||0):null;composed.push([op,arg]);renderCompose();playBrick(op,arg);}
-async function ensureAudio(){if(!ac)initAudio();await ac.resume();TIMBRE=$('timbre').value;}
+async function ensureAudio(){if(!ac)initAudio();await ac.resume();STYLE=$('style').value;applyStyleFX();}
 async function playBrick(op,arg){await ensureAudio();const notes=realize([{op,arg,iter:0,val:null}],params()).notes;for(const n of notes)voice(n,0);}
 async function playSeq(){if(!composed.length)return;await ensureAudio();const tr=composed.map(([op,arg])=>({op,arg,iter:0,val:null}));
   const real=realize(tr,params());RN=real.notes;RT=real.total;sizeCanvas();playing=true;const t0=ac.currentTime;for(const n of RN)voice(n,0);
